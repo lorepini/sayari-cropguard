@@ -1,0 +1,35 @@
+/* CropGuard — custom styles */
+
+body {
+  font-family: 'Inter', sans-serif;
+  background-color: #F8F9FA;
+}
+
+.card {
+  border-radius: 8px !important;
+}
+
+.card-header {
+  border-radius: 8px 8px 0 0 !important;
+  padding: 0.6rem 1rem;
+}
+
+.navbar-brand {
+  display: flex;
+  align-items: center;
+}
+
+/* Alert feed items */
+.alert {
+  border-radius: 6px !important;
+}
+
+/* Stat cards */
+.card-body h3 {
+  line-height: 1;
+}
+
+/* Map container */
+.js-plotly-plot .plotly {
+  border-radius: 0 0 8px 8px;
+}
