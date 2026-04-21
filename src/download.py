@@ -161,7 +161,8 @@ def download_product(
     product_id   = product["Id"]
     product_name = product["Name"]
     zip_path     = out_dir / f"{product_name}.zip"
-    safe_path    = out_dir / f"{product_name}.SAFE"
+    base_name    = product_name[:-5] if product_name.endswith(".SAFE") else product_name
+    safe_path    = out_dir / f"{base_name}.SAFE"
 
     if safe_path.exists():
         print(f"[download] Already downloaded: {safe_path.name}")

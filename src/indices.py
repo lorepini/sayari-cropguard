@@ -88,7 +88,12 @@ def apply_cloud_mask(
     masked = {}
     for name, arr in indices.items():
         a = arr.copy()
-        a[cloud_mask] = np.nan
+        mask = cloud_mask
+        if mask.shape != a.shape:
+            from scipy.ndimage import zoom
+            scale = a.shape[0] / mask.shape[0]
+            mask = zoom(mask.astype(np.uint8), scale, order=0).astype(bool)
+        a[mask] = np.nan
         masked[name] = a
     return masked
 

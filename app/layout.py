@@ -85,7 +85,7 @@ def build_layout() -> dbc.Container:
                                             id="community-map",
                                             config={"scrollZoom": True,
                                                     "displayModeBar": False},
-                                            style={"height": "62vh"},
+                                            style={"height": "55vh"},
                                         ),
                                         style={"padding": "0"},
                                     ),
@@ -237,7 +237,7 @@ def build_layout() -> dbc.Container:
                                 dcc.Graph(
                                     id="timeseries-chart",
                                     config={"displayModeBar": False},
-                                    style={"height": "28vh"},
+                                    style={"height": "38vh"},
                                 ),
                                 style={"padding": "8px"},
                             ),

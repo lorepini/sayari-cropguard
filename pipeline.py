@@ -55,7 +55,9 @@ def run_pipeline(n_scenes: int = 1):
     # 3. Process each scene
     print(f"\n[3/4] Computing indices & scoring...")
     for i, band_paths in enumerate(scene_paths):
-        scene_date = list(band_paths.values())[0].parent.name[:10]
+        folder_name = list(band_paths.values())[0].parent.name
+        raw_date = folder_name.split("_")[2][:8]  # e.g. "20260420"
+        scene_date = f"{raw_date[:4]}-{raw_date[4:6]}-{raw_date[6:8]}"
         print(f"\n  Scene {i+1}/{len(scene_paths)}  |  {scene_date}")
 
         # Compute indices

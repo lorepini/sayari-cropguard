@@ -29,12 +29,13 @@ def get_latest_scores() -> gpd.GeoDataFrame:
     """
     Return the most recent scored GeoDataFrame.
     Merges community polygons with the latest history record.
-    Falls back to demo data if no pipeline has been run yet.
+    Falls back to demo data if no pipeline has been run yet or columns are missing.
     """
     communities = load_communities()
     history = load_history()
 
-    if history.empty:
+    REQUIRED = {"NDVI", "NDWI", "stress_prob", "status"}
+    if history.empty or not REQUIRED.issubset(set(history.columns)):
         return _demo_scores(communities)
 
     latest_date = history["date"].max()
@@ -65,81 +66,101 @@ def _demo_scores(communities: gpd.GeoDataFrame) -> gpd.GeoDataFrame:
 
 
 def _demo_history() -> pd.DataFrame:
-    """Synthetic 6-month NDVI time series for all communities."""
+    """Synthetic 6-month time series for all communities (NDVI, NDWI, stress_prob)."""
     communities = load_communities()["name"].tolist()
     rng = np.random.default_rng(seed=7)
-    dates = pd.date_range(
-        end=date.today(), periods=36, freq="5D"
-    )
+    dates = pd.date_range(end=date.today(), periods=36, freq="5D")
     rows = []
     for c in communities:
-        base = rng.uniform(0.35, 0.65)
-        for d in dates:
-            noise = rng.normal(0, 0.03)
-            trend = -0.003 * (dates.get_loc(d) / len(dates))  # slow decline
-            ndvi  = float(np.clip(base + noise + trend, 0.1, 0.85))
-            rows.append({"community": c, "date": d, "NDVI": round(ndvi, 3)})
+        ndvi_base = rng.uniform(0.35, 0.65)
+        ndwi_base = rng.uniform(-0.20, 0.10)
+        for i, d in enumerate(dates):
+            trend = -0.003 * (i / len(dates))
+            ndvi = float(np.clip(ndvi_base + rng.normal(0, 0.03) + trend, 0.1, 0.85))
+            ndwi = float(np.clip(ndwi_base + rng.normal(0, 0.02) + trend * 0.5, -0.3, 0.3))
+            # stress increases as NDVI drops
+            stress_prob = float(np.clip(1.0 - ndvi + rng.normal(0, 0.05), 0.0, 1.0))
+            rows.append({
+                "community": c,
+                "date": d,
+                "NDVI": round(ndvi, 3),
+                "NDWI": round(ndwi, 3),
+                "stress_prob": round(stress_prob, 3),
+            })
     return pd.DataFrame(rows)
 
 
 # ── Map figure builder ────────────────────────────────────────────────────────
 
 def build_map(gdf: gpd.GeoDataFrame, index_col: str = "NDVI") -> go.Figure:
-    STATUS_COLOR_MAP = config.STATUS_COLORS
+    import json
 
     gdf = gdf.copy()
-    gdf["color"] = gdf["status"].map(STATUS_COLOR_MAP).fillna("#95A5A6")
-    gdf["hover_text"] = gdf.apply(
-        lambda r: (
-            f"<b>{r['name']}</b><br>"
-            f"NDVI: {r.get('NDVI', 'N/D'):.3f}<br>"
-            f"NDWI: {r.get('NDWI', 'N/D'):.3f}<br>"
-            f"Estrés: {r.get('stress_prob', 0) * 100:.0f}%<br>"
-            f"Estado: {r.get('status', 'N/D').upper()}"
-        ),
-        axis=1,
-    )
 
-    # Choropleth value to display
     if index_col not in gdf.columns:
         index_col = "NDVI"
 
-    fig = px.choropleth_mapbox(
-        gdf,
-        geojson=gdf.__geo_interface__,
-        locations=gdf.index,
-        color=index_col,
-        color_continuous_scale=(
-            ["#E74C3C", "#F39C12", "#27AE60"]
-            if index_col == "NDVI"
-            else "RdYlGn"
-        ),
-        range_color=(0.1, 0.8) if index_col == "NDVI" else (0, 1),
-        mapbox_style=config.MAP_STYLE,
-        zoom=config.MAP_ZOOM,
-        center=config.MAP_CENTER,
-        opacity=0.65,
-        hover_name="name",
-        hover_data={
-            "NDVI": ":.3f",
-            "stress_prob": ":.0%",
-            "status": True,
-        },
-        labels={
-            "NDVI": "NDVI",
-            "stress_prob": "Estrés",
-            "status": "Estado",
-        },
-    )
+    # Build GeoJSON with feature IDs = community name so locations can match
+    # Keep only geometry + essential columns to avoid ndarray serialisation issues
+    cols_to_keep = [c for c in ["name", "NDVI", "NDWI", "stress_prob", "status"]
+                    if c in gdf.columns]
+    geojson = json.loads(gdf[cols_to_keep + ["geometry"]].to_json())
+    for feature in geojson["features"]:
+        feature["id"] = feature["properties"]["name"]
 
-    fig.update_layout(
-        margin={"r": 0, "t": 0, "l": 0, "b": 0},
-        coloraxis_colorbar=dict(
-            title=index_col,
+    # Colour scale and range per index
+    if index_col == "NDVI":
+        colorscale = [[0, "#E74C3C"], [0.5, "#F39C12"], [1, "#27AE60"]]
+        zmin, zmax = 0.1, 0.8
+    elif index_col == "NDWI":
+        colorscale = [[0, "#E74C3C"], [0.5, "#F39C12"], [1, "#27AE60"]]
+        zmin, zmax = -0.3, 0.3
+    else:  # stress_prob — higher = worse
+        colorscale = [[0, "#27AE60"], [0.5, "#F39C12"], [1, "#E74C3C"]]
+        zmin, zmax = 0.0, 1.0
+
+    # Hover labels
+    hover_texts = []
+    for _, row in gdf.iterrows():
+        ndvi = row.get("NDVI", float("nan"))
+        ndwi = row.get("NDWI", float("nan"))
+        sp   = row.get("stress_prob", float("nan"))
+        stat = str(row.get("status", "N/D")).upper()
+        lines = [f"<b>{row['name']}</b>"]
+        if not (isinstance(ndvi, float) and np.isnan(ndvi)):
+            lines.append(f"NDVI: {ndvi:.3f}")
+        if not (isinstance(ndwi, float) and np.isnan(ndwi)):
+            lines.append(f"NDWI: {ndwi:.3f}")
+        if not (isinstance(sp, float) and np.isnan(sp)):
+            lines.append(f"Estrés: {sp*100:.0f}%")
+        lines.append(f"Estado: {stat}")
+        hover_texts.append("<br>".join(lines))
+
+    fig = go.Figure(go.Choroplethmap(
+        geojson=geojson,
+        locations=gdf["name"].tolist(),
+        z=gdf[index_col].tolist(),
+        colorscale=colorscale,
+        zmin=zmin,
+        zmax=zmax,
+        marker_opacity=0.70,
+        marker_line_width=1.5,
+        marker_line_color="white",
+        hovertext=hover_texts,
+        hoverinfo="text",
+        colorbar=dict(
+            title=dict(text=index_col, side="right"),
             thickness=12,
             len=0.6,
             x=1.0,
         ),
+    ))
+
+    fig.update_layout(
+        map_style=config.MAP_STYLE,
+        map_zoom=config.MAP_ZOOM,
+        map_center=config.MAP_CENTER,
+        margin={"r": 0, "t": 0, "l": 0, "b": 0},
         paper_bgcolor="white",
     )
     return fig
@@ -222,8 +243,9 @@ def register_callbacks(app):
         if dropdown_value:
             return dropdown_value
         if click_data:
-            return click_data["points"][0].get("hovertext") or \
-                   click_data["points"][0].get("customdata", [None])[0]
+            pt = click_data["points"][0]
+            # go.Choroplethmapbox puts the feature id in "location"
+            return pt.get("location") or pt.get("hovertext")
         return None
 
     @app.callback(

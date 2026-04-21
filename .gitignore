@@ -26,6 +26,7 @@ data/processed/
 # Keep directory structure
 !data/raw/.gitkeep
 !data/processed/.gitkeep
+!data/processed/index_history.parquet
 
 # Notebooks checkpoints
 .ipynb_checkpoints/
