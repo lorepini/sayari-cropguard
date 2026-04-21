@@ -38,8 +38,25 @@ def get_latest_scores() -> gpd.GeoDataFrame:
     if history.empty or not REQUIRED.issubset(set(history.columns)):
         return _demo_scores(communities)
 
-    latest_date = history["date"].max()
-    latest = history[history["date"] == latest_date]
+    # Use latest date that has real status values; fall back to latest overall
+    has_status = history[history["status"].notna() & (history["status"] != "None")]
+    source = has_status if not has_status.empty else history
+    latest_date = source["date"].max()
+    latest = history[history["date"] == latest_date].copy()
+
+    # Derive status from stress_prob if missing
+    def _derive_status(row):
+        if row["status"] and row["status"] not in (None, "None", "nan"):
+            return row["status"]
+        sp = row.get("stress_prob", 0)
+        if sp >= 0.60:
+            return "alert"
+        if sp >= 0.40:
+            return "watch"
+        return "healthy"
+
+    latest["status"] = latest.apply(_derive_status, axis=1)
+
     merged = communities.merge(
         latest[["community", "NDVI", "NDWI", "stress_prob", "status"]],
         left_on="name", right_on="community", how="left"
