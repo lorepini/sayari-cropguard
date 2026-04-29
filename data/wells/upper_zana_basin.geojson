@@ -1,0 +1,26 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-79.40, -6.95],
+          [-78.70, -6.95],
+          [-78.70, -6.50],
+          [-79.40, -6.50],
+          [-79.40, -6.95]
+        ]]
+      },
+      "properties": {
+        "name": "Upper Zana Basin (Andes headwaters)",
+        "purpose": "Rainfall integration polygon for recharge proxy",
+        "representative_point_lat": -6.72,
+        "representative_point_lon": -79.05,
+        "elevation_range_m": "300-3500",
+        "note": "Approximate bounding polygon. Refine with ANA basin shapefile when available. Andes rainfall here drives Rio Zana discharge which laterally recharges the Cayalti aquifer."
+      }
+    }
+  ]
+}

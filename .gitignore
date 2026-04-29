@@ -27,6 +27,7 @@ data/processed/
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !data/processed/index_history.parquet
+!data/processed/wells_history.parquet
 
 # Notebooks checkpoints
 .ipynb_checkpoints/
@@ -39,3 +40,9 @@ data/processed/
 # OS
 .DS_Store
 Thumbs.db
+
+# Dev tooling not for repo
+cloudflared-linux-amd64.deb
+
+# Stray Windows-path-named files (copy-paste artifacts)
+C:\\Users\\*

@@ -5,6 +5,8 @@ All visual structure is defined here; logic lives in callbacks.py.
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from pozos_layout import build_pozos_layout
+
 
 def build_layout() -> dbc.Container:
     return dbc.Container(
@@ -47,7 +49,44 @@ def build_layout() -> dbc.Container:
                 style={"padding": "0.5rem 1rem"},
             ),
 
-            # ── Main content ──────────────────────────────────────────────────
+            # ── Tabs (Cultivos | Pozos) ───────────────────────────────────────
+            dbc.Tabs(
+                [
+                    dbc.Tab(
+                        _build_crop_content(),
+                        label="🌱 Cultivos",
+                        tab_id="tab-cultivos",
+                        active_label_style={"color": "#00897B",
+                                            "fontWeight": "700"},
+                        label_style={"fontSize": "0.95rem"},
+                    ),
+                    dbc.Tab(
+                        build_pozos_layout(),
+                        label="💧 Pozos",
+                        tab_id="tab-pozos",
+                        active_label_style={"color": "#00897B",
+                                            "fontWeight": "700"},
+                        label_style={"fontSize": "0.95rem"},
+                    ),
+                ],
+                id="main-tabs",
+                active_tab="tab-cultivos",
+                style={"backgroundColor": "white",
+                       "padding": "0 12px",
+                       "borderBottom": "1px solid #E5E7E9"},
+            ),
+
+            # Hidden store + interval (shared across tabs)
+            dcc.Store(id="selected-community", data=None),
+            dcc.Interval(id="auto-refresh", interval=5 * 60 * 1000, n_intervals=0),
+        ],
+    )
+
+
+def _build_crop_content() -> html.Div:
+    return html.Div(
+        style={"padding": "0"},
+        children=[
             dbc.Row(
                 [
                     # Left: map
@@ -249,9 +288,6 @@ def build_layout() -> dbc.Container:
                 ),
             ),
 
-            # Hidden store for shared state
-            dcc.Store(id="selected-community", data=None),
-            dcc.Interval(id="auto-refresh", interval=5 * 60 * 1000, n_intervals=0),
         ],
     )
 

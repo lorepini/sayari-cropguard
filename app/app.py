@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from layout import build_layout
 from callbacks import register_callbacks
+from pozos_callbacks import register_pozos_callbacks
 
 app = dash.Dash(
     __name__,
@@ -26,6 +27,7 @@ app = dash.Dash(
 
 app.layout = build_layout()
 register_callbacks(app)
+register_pozos_callbacks(app)
 
 if __name__ == "__main__":
     import os

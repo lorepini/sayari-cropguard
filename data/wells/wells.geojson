@@ -1,0 +1,91 @@
+{
+  "type": "FeatureCollection",
+  "metadata": {
+    "association": "Sayariy-Resurgiendo",
+    "district": "Cayaltí",
+    "province": "Chiclayo",
+    "department": "Lambayeque",
+    "country": "Peru",
+    "schematics_date": "2021-11",
+    "geophysical_study": "Alarcón 2021",
+    "history_file": "data/processed/wells_history.parquet",
+    "measurement_convention": "water_column_height_from_bottom_meters",
+    "convention_confirmed_via": "Pozo1 2021 schematic baseline (3.5/2.2 m) matches Chequeo.xlsx 2022 baseline (3.5/2.2 m)"
+  },
+  "features": [
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-79.51, -6.91]
+      },
+      "properties": {
+        "well_id": "pozo1_asr",
+        "name": "Pozo 1 ASR",
+        "utm_east": 663913,
+        "utm_north": 9235271,
+        "utm_zone": "17S",
+        "utm_source": "Alarcón 2021 SEV-02",
+        "drilled_depth_m": 20.20,
+        "recommended_depth_m": 48.0,
+        "casing": "PVC 20 m x 6\" ID, Class PN10",
+        "bore_diameter_in": 9.25,
+        "external_gravel_pack": "1/8\" + 1/16\"",
+        "internal_gravel_m": 0.95,
+        "effective_bottom_depth_m": 19.25,
+        "water_table_static_depth_m": 15.75,
+        "water_table_dynamic_depth_m": 17.05,
+        "static_column_baseline_2021_m": 3.5,
+        "dynamic_column_baseline_2021_m": 2.2,
+        "test_pump_flow_m3_per_hr": 6.57,
+        "operational_pump_model": "Pedrollo 4SR45Gm/30",
+        "operational_pump_power_kw": 2.2,
+        "operational_pump_power_hp": 3.0,
+        "operational_pump_stages": 8,
+        "operational_pump_max_head_m": 80,
+        "sustainable_yield_l_per_day": 52500,
+        "current_extraction_l_per_day": 45000,
+        "primary_recharge": "rio_zana_lateral_seepage",
+        "aquifer_type": "free_unconfined",
+        "aquifer_thickness_m": 31.2,
+        "aquifer_base_depth_m": 43.2,
+        "history_tracked_in_chequeo_xlsx": true,
+        "last_maintenance": "2026-01-07"
+      }
+    },
+    {
+      "type": "Feature",
+      "geometry": {
+        "type": "Point",
+        "coordinates": [-79.51, -6.91]
+      },
+      "properties": {
+        "well_id": "pozo2_asr",
+        "name": "Pozo 2 ASR",
+        "coordinates_status": "TBD_pending_ngo_confirmation",
+        "drilled_depth_m": 19.20,
+        "casing": "PVC 20 m x 160mm OD, Class PN10",
+        "bore_diameter_in": 9.25,
+        "external_gravel_pack": "1/8\" + 1/16\"",
+        "internal_gravel_m": 0.40,
+        "effective_bottom_depth_m": 18.80,
+        "water_table_static_depth_m": 13.32,
+        "water_table_dynamic_depth_m": 14.55,
+        "static_column_baseline_2021_m": 5.48,
+        "dynamic_column_baseline_2021_m": 4.25,
+        "test_pump_flow_m3_per_hr": 5.4,
+        "operational_pump_model": "Pedrollo 4SR45Gm/20",
+        "operational_pump_power_kw": 1.5,
+        "operational_pump_power_hp": 2.0,
+        "operational_pump_stages": 6,
+        "operational_pump_max_head_m": 55,
+        "sustainable_yield_l_per_day": 43000,
+        "current_extraction_l_per_day": null,
+        "primary_recharge": "rio_zana_lateral_seepage",
+        "aquifer_type": "free_unconfined",
+        "history_tracked_in_chequeo_xlsx": false,
+        "note": "Higher static column than Pozo 1 (5.48 vs 3.5 m) and shallower water table — appears to sit over a more productive aquifer pocket"
+      }
+    }
+  ]
+}

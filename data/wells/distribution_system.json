@@ -1,0 +1,40 @@
+{
+  "source": "NGO Provided Info/Agua.docx",
+  "wells": ["pozo1_asr", "pozo2_asr"],
+  "pumping": {
+    "type": "solar",
+    "lift_to_storage_m": 4,
+    "storage_distance_from_pozo1_m": 10
+  },
+  "storage": {
+    "elevation_m_above_ground": 4,
+    "huertos_y_vivienda": {
+      "n_tanks": 4,
+      "capacity_l_each": 2500,
+      "total_l": 10000
+    },
+    "maracuya_field": {
+      "n_tanks": 1,
+      "type": "geomembrane_HDPE",
+      "total_l": 40000
+    },
+    "total_storage_l": 50000
+  },
+  "distribution": {
+    "main_pipe_material": "HDPE",
+    "main_pipe_diameter_in": 3,
+    "main_pipe_length_m": 500,
+    "delivery_method": "gravity_fed_from_elevated_storage"
+  },
+  "irrigation": {
+    "type": "tecnificado",
+    "served_units": {
+      "huertos": 20,
+      "maracuya_plants": 3500,
+      "vivienda": true
+    }
+  },
+  "current_total_extraction_l_per_day": 45000,
+  "combined_sustainable_yield_l_per_day": 95500,
+  "headroom_pct": 53
+}
