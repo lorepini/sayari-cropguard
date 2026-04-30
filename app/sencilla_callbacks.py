@@ -18,12 +18,16 @@ from dash import Input, Output, html
 import dash_bootstrap_components as dbc
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
+import datetime as dt
+
 from src.data_sources import open_meteo, noaa_oni, andes_rainfall
 from src.water_balance import (
     WaterBalanceParams,
     days_until_critical,
     forecast_with_uncertainty,
 )
+from src.drought import compute_spi, spi_band_es, spi_emoji
+from src.seasonal import build_seasonal_extension, seasonal_outlook_es
 
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -255,7 +259,9 @@ def _build_weather_strip(forecast_df: pd.DataFrame) -> html.Div:
 
 
 def _build_alerts(static_m: float, days_to_critical: int | None,
-                  rain_next_7d_mm: float, enso_state: str) -> html.Div:
+                  rain_next_7d_mm: float, enso_state: str,
+                  drought: dict | None = None,
+                  seasonal_outlook: str | None = None) -> html.Div:
     items = []
 
     if static_m < THRESHOLD_AMBER_M:
@@ -266,6 +272,22 @@ def _build_alerts(static_m: float, days_to_critical: int | None,
         items.append(("⚠️", "Aviso temprano",
                      f"Si sigue así, en {days_to_critical} días el pozo "
                      "estará en nivel crítico."))
+
+    # Drought (SPI-3) — independent of ENSO; speaks to recharge in the basin
+    if drought is not None and drought.get("spi") is not None:
+        spi_v = drought["spi"]
+        if spi_v == spi_v:  # not NaN
+            if spi_v <= -1.0:
+                items.append((drought["emoji"],
+                              f"Sequía en la cuenca alta ({drought['band_es']})",
+                              f"Lluvia de los últimos 3 meses: {drought['accum_mm']:.0f} mm "
+                              f"vs. {drought['climatology_mean_mm']:.0f} mm normales. "
+                              "Esperar menos recarga del Río Zaña."))
+            elif spi_v >= 1.5:
+                items.append((drought["emoji"],
+                              f"Lluvias por encima de lo normal ({drought['band_es']})",
+                              f"La cuenca recibió {drought['accum_mm']:.0f} mm en 3 meses. "
+                              "Esperar mejor recarga del pozo en las próximas semanas."))
 
     if enso_state == "el_nino":
         items.append(("🌧️", "El Niño activo",
@@ -280,6 +302,10 @@ def _build_alerts(static_m: float, days_to_critical: int | None,
         items.append(("☀️", "Semana sin lluvia",
                      "No se espera lluvia esta semana. Use el agua del "
                      "pozo con cuidado."))
+
+    # Seasonal outlook (next 1-3 months)
+    if seasonal_outlook:
+        items.append(("📅", "Pronóstico estacional", seasonal_outlook))
 
     if not items:
         return html.Div(
@@ -386,12 +412,53 @@ def register_sencilla_callbacks(app):
         except Exception:
             pass
 
+        # SPI-3 drought indicator over the upper Zaña basin
+        drought = None
+        try:
+            end = dt.date.today() - dt.timedelta(days=2)
+            df_arch = andes_rainfall.fetch_upper_basin_history(
+                dt.date(2000, 1, 1), end, multipoint=False
+            ).rename(columns={"andes_precip_mm": "precip_mm"})
+            spi = compute_spi(df_arch, end_date=end, window_months=3)
+            drought = {
+                "spi": spi.spi,
+                "band": spi.band,
+                "band_es": spi_band_es(spi.band),
+                "emoji": spi_emoji(spi.spi),
+                "accum_mm": spi.accumulation_mm,
+                "climatology_mean_mm": spi.climatology_mean_mm,
+            }
+        except Exception:
+            pass
+
+        # Seasonal outlook (days 35-90 ahead, ENSO-conditional)
+        seasonal_outlook: str | None = None
+        try:
+            end = dt.date.today() - dt.timedelta(days=2)
+            df_arch_local = open_meteo.fetch_historical(
+                -6.91, -79.51, dt.date(2000, 1, 1), end
+            )
+            try:
+                _, anom, _ = noaa_oni.latest_state()
+            except Exception:
+                anom = 0.0
+            seasonal = build_seasonal_extension(
+                df_arch_local,
+                start_date=end + dt.timedelta(days=35),
+                days=55,
+                current_oni=anom,
+            )
+            seasonal_outlook = seasonal_outlook_es(seasonal)
+        except Exception:
+            pass
+
         return (
             _build_status_hero(static_m, last_date),
             _build_tank_gauge(static_m),
             _build_riego_rec(rain_next_3d_mm, static_m),
             _build_weather_strip(weather_df),
-            _build_alerts(static_m, days_to_critical, rain_next_7d_mm, enso_state),
+            _build_alerts(static_m, days_to_critical, rain_next_7d_mm, enso_state,
+                          drought=drought, seasonal_outlook=seasonal_outlook),
         )
 
 

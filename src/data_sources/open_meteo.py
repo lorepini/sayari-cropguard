@@ -13,8 +13,17 @@ import pandas as pd
 
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
+ENSEMBLE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
 TIMEZONE = "America/Lima"
 DAILY_VARS = "precipitation_sum,et0_fao_evapotranspiration"
+
+# Ensemble model specs:
+#   gfs_seamless    — 30 members, up to 35 days, NOAA NCEP GFS ensemble (GEFS).
+#   icon_seamless   — 39 members, up to 14 days, DWD ICON-D2/EU.
+#   ecmwf_ifs025    — 50 members, up to 15 days, ECMWF IFS ensemble.
+#   gem_global      — 20 members, up to 16 days, ECCC GEM.
+ENSEMBLE_DEFAULT_MODEL = "gfs_seamless"
+ENSEMBLE_MAX_DAYS = 35
 
 
 def fetch_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
@@ -54,6 +63,54 @@ def _to_dataframe(payload: dict) -> pd.DataFrame:
         "et0_mm": daily["et0_fao_evapotranspiration"],
     })
     return df
+
+
+def fetch_ensemble_forecast(
+    lat: float,
+    lon: float,
+    days: int = ENSEMBLE_MAX_DAYS,
+    model: str = ENSEMBLE_DEFAULT_MODEL,
+) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """Probabilistic daily forecast — full ensemble for precipitation and ET0.
+
+    Returns (precip_df, et0_df) where each has columns:
+      date | member_00 | member_01 | ... | member_NN
+    Each `member_NN` column is one ensemble trajectory (mm/day for precip,
+    mm/day for et0). The deterministic control run is `member_00`.
+
+    Use these to compute real percentile bands (P10/P50/P90) on any downstream
+    quantity, instead of synthetic uncertainty assumptions.
+    """
+    days = min(days, ENSEMBLE_MAX_DAYS)
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "daily": DAILY_VARS,
+        "forecast_days": days,
+        "models": model,
+        "timezone": TIMEZONE,
+    }
+    r = requests.get(ENSEMBLE_URL, params=params, timeout=45)
+    r.raise_for_status()
+    daily = r.json()["daily"]
+    dates = pd.to_datetime(daily["time"]).date
+
+    def _stack(prefix: str) -> pd.DataFrame:
+        # The deterministic control run uses the bare key, then memberNN keys
+        cols: dict[str, list] = {}
+        if prefix in daily:
+            cols["member_00"] = daily[prefix]
+        member_keys = sorted(k for k in daily if k.startswith(prefix + "_member"))
+        for k in member_keys:
+            n = int(k.split("_member")[1])
+            cols[f"member_{n:02d}"] = daily[k]
+        df = pd.DataFrame({"date": dates, **cols})
+        # Replace nulls with 0 (precip) / climatology (et0) after the fact
+        return df
+
+    precip_df = _stack("precipitation_sum")
+    et0_df = _stack("et0_fao_evapotranspiration")
+    return precip_df, et0_df
 
 
 if __name__ == "__main__":

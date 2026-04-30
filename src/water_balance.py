@@ -205,6 +205,41 @@ def forecast(
     return out
 
 
+def forecast_ensemble(
+    h0_m: float,
+    drivers_per_member: list[pd.DataFrame],
+    params: WaterBalanceParams = WaterBalanceParams(),
+    percentiles: tuple[float, ...] = (10, 50, 90),
+) -> pd.DataFrame:
+    """Run the model forward under each ensemble driver trajectory.
+
+    drivers_per_member : list of DataFrames, one per ensemble member, each
+        with the standard driver columns (date, recharge_proxy_mm,
+        local_rainfall_mm, extraction_l, oni_anom, et0_mm).
+
+    Returns a DataFrame indexed by date with `nivel_p10_m`, `nivel_p50_m`,
+    `nivel_p90_m` columns (or whatever percentiles you pass), plus
+    `nivel_mean_m` and `nivel_std_m`. This is a true probabilistic forecast
+    derived from ensemble physics, not a synthetic uncertainty assumption.
+    """
+    if not drivers_per_member:
+        raise ValueError("forecast_ensemble: empty ensemble")
+
+    trajectories = []
+    for drivers in drivers_per_member:
+        fc = forecast(h0_m=h0_m, drivers=drivers, params=params)
+        trajectories.append(fc[["date", "nivel_predicho_m"]].set_index("date")["nivel_predicho_m"])
+
+    matrix = pd.concat(trajectories, axis=1)
+    out = pd.DataFrame({"date": matrix.index})
+    for p in percentiles:
+        out[f"nivel_p{int(p):02d}_m"] = matrix.quantile(p / 100.0, axis=1).values
+    out["nivel_mean_m"] = matrix.mean(axis=1).values
+    out["nivel_std_m"] = matrix.std(axis=1).values
+    out["n_members"] = matrix.shape[1]
+    return out.reset_index(drop=True)
+
+
 def forecast_with_uncertainty(
     h0_m: float,
     drivers: pd.DataFrame,
