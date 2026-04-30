@@ -6,6 +6,7 @@ import dash_bootstrap_components as dbc
 from dash import dcc, html
 
 from pozos_layout import build_pozos_layout
+from sencilla_layout import build_sencilla_layout
 
 
 def build_layout() -> dbc.Container:
@@ -49,9 +50,17 @@ def build_layout() -> dbc.Container:
                 style={"padding": "0.5rem 1rem"},
             ),
 
-            # ── Tabs (Cultivos | Pozos) ───────────────────────────────────────
+            # ── Tabs (Sencilla | Cultivos | Pozos) ────────────────────────────
             dbc.Tabs(
                 [
+                    dbc.Tab(
+                        build_sencilla_layout(),
+                        label="🏠 Vista Sencilla",
+                        tab_id="tab-sencilla",
+                        active_label_style={"color": "#00897B",
+                                            "fontWeight": "700"},
+                        label_style={"fontSize": "0.95rem"},
+                    ),
                     dbc.Tab(
                         _build_crop_content(),
                         label="🌱 Cultivos",
@@ -70,7 +79,7 @@ def build_layout() -> dbc.Container:
                     ),
                 ],
                 id="main-tabs",
-                active_tab="tab-cultivos",
+                active_tab="tab-sencilla",
                 style={"backgroundColor": "white",
                        "padding": "0 12px",
                        "borderBottom": "1px solid #E5E7E9"},

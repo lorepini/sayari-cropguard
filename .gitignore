@@ -15,7 +15,7 @@ build/
 
 # Data (large files — never commit satellite tiles)
 data/raw/
-data/processed/
+data/processed/*
 *.tif
 *.tiff
 *.nc
@@ -28,6 +28,8 @@ data/processed/
 !data/processed/.gitkeep
 !data/processed/index_history.parquet
 !data/processed/wells_history.parquet
+!data/processed/water_balance_params.json
+!data/processed/water_balance_drivers.parquet
 
 # Notebooks checkpoints
 .ipynb_checkpoints/

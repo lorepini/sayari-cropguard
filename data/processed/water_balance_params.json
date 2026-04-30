@@ -1,0 +1,38 @@
+{
+  "params": {
+    "alpha": 0.0,
+    "beta": 4.32401925951473e-06,
+    "gamma": 1.0795635377413513e-08,
+    "delta": 0.0003419642265583468,
+    "epsilon": 0.0001640872968090259,
+    "recharge_lag_days": 14,
+    "recharge_window_days": 60
+  },
+  "metadata": {
+    "method": "regularized least-squares with Bayesian L2 prior",
+    "ridge_lambda": 0.05,
+    "n_observations": 5,
+    "baseline_date": "2022-12-31",
+    "baseline_h_m": 3.5,
+    "calibration_window": [
+      "2022-01-01",
+      "2026-04-28"
+    ],
+    "free_params": [
+      "alpha",
+      "beta",
+      "gamma",
+      "delta",
+      "epsilon"
+    ],
+    "frozen_params": [
+      "recharge_lag_days",
+      "recharge_window_days"
+    ],
+    "loo_rmse_m": 0.16309842789956983,
+    "loo_mae_m": 0.14094393119953139,
+    "loo_residual_std_m": 0.1543337912597819,
+    "loo_max_abs_err_m": 0.22022719842094318
+  },
+  "saved_at": "2026-04-30T14:56:39"
+}

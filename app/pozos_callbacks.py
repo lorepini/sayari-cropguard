@@ -17,14 +17,27 @@ import dash_bootstrap_components as dbc
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.data_sources import open_meteo, noaa_oni, andes_rainfall
-from src.water_balance import forecast as wb_forecast
-from src.water_balance import PUMP_CAPACITY_L_PER_DAY
+from src.water_balance import (
+    PUMP_CAPACITY_L_PER_DAY,
+    WaterBalanceParams,
+    days_until_critical,
+    forecast_with_uncertainty,
+)
 
 
 ROOT = Path(__file__).resolve().parent.parent
 WELLS_GEOJSON = ROOT / "data" / "wells" / "wells.geojson"
 DISTRIBUTION_JSON = ROOT / "data" / "wells" / "distribution_system.json"
 WELLS_HISTORY = ROOT / "data" / "processed" / "wells_history.parquet"
+PARAMS_JSON = ROOT / "data" / "processed" / "water_balance_params.json"
+
+
+def _load_calibrated_params() -> tuple[WaterBalanceParams, dict]:
+    """Load calibrated params + metadata. Falls back to defaults if not yet calibrated."""
+    if not PARAMS_JSON.exists():
+        return WaterBalanceParams(), {"calibrated": False}
+    payload = json.load(open(PARAMS_JSON))
+    return WaterBalanceParams(**payload["params"]), {"calibrated": True, **payload["metadata"]}
 
 
 def _load_wells():
@@ -44,29 +57,43 @@ def _load_history() -> pd.DataFrame:
 
 
 def _build_well_map(wells: dict) -> go.Figure:
-    lats, lons, names, hover, sizes = [], [], [], [], []
+    op_lats, op_lons, op_names, op_hover = [], [], [], []
+    oos_lats, oos_lons, oos_names, oos_hover = [], [], [], []
+
     for f in wells["features"]:
         coords = f["geometry"]["coordinates"]
         p = f["properties"]
-        # Pozo 2 has placeholder coords (same as Pozo 1) — nudge it slightly so both render
-        lon = coords[0] + (0.003 if p["well_id"] == "pozo2_asr" else 0)
-        lat = coords[1] + (0.002 if p["well_id"] == "pozo2_asr" else 0)
-        lats.append(lat)
-        lons.append(lon)
-        names.append(p["name"])
-        sizes.append(28 if p["well_id"] == "pozo1_asr" else 24)
+        is_pozo2 = p["well_id"] == "pozo2_asr"
+        is_oos = p.get("status") == "out_of_service"
+        # Pozo 2 has placeholder coords (same as Pozo 1) — nudge so both render
+        lon = coords[0] + (0.003 if is_pozo2 else 0)
+        lat = coords[1] + (0.002 if is_pozo2 else 0)
         sustainable = p.get("sustainable_yield_l_per_day", "—")
         depth = p.get("drilled_depth_m", "—")
         pump = p.get("operational_pump_model", "—")
-        coord_note = "" if p["well_id"] == "pozo1_asr" else "<br><i>(coords aprox - pendientes)</i>"
-        hover.append(
-            f"<b>{p['name']}</b>{coord_note}<br>"
+        coord_note = "" if not is_pozo2 else "<br><i>(coords aprox - pendientes)</i>"
+        status_note = (
+            "<br><b style='color:#E74C3C'>⚠ FUERA DE SERVICIO</b>"
+            if is_oos else ""
+        )
+        hover_text = (
+            f"<b>{p['name']}</b>{status_note}{coord_note}<br>"
             f"Profundidad: {depth} m<br>"
             f"Bomba: {pump}<br>"
             f"Yield sostenible: {sustainable:,} L/día"
             if isinstance(sustainable, int)
-            else f"<b>{p['name']}</b>{coord_note}<br>Profundidad: {depth} m<br>Bomba: {pump}"
+            else f"<b>{p['name']}</b>{status_note}{coord_note}<br>"
+                 f"Profundidad: {depth} m<br>Bomba: {pump}"
         )
+
+        if is_oos:
+            oos_lats.append(lat); oos_lons.append(lon)
+            oos_names.append(p["name"] + " (fuera de servicio)")
+            oos_hover.append(hover_text)
+        else:
+            op_lats.append(lat); op_lons.append(lon)
+            op_names.append(p["name"])
+            op_hover.append(hover_text)
 
     fig = go.Figure()
 
@@ -82,18 +109,26 @@ def _build_well_map(wells: dict) -> go.Figure:
         showlegend=False,
     ))
 
-    fig.add_trace(go.Scattermap(
-        lon=lons,
-        lat=lats,
-        mode="markers+text",
-        marker=dict(size=sizes, color=["#00897B", "#27AE60"], opacity=0.95),
-        text=names,
-        textposition="top right",
-        textfont=dict(size=12, color="#1A2744"),
-        hoverinfo="text",
-        hovertext=hover,
-        showlegend=False,
-    ))
+    if op_lats:
+        fig.add_trace(go.Scattermap(
+            lon=op_lons, lat=op_lats,
+            mode="markers+text",
+            marker=dict(size=28, color="#00897B", opacity=0.95),
+            text=op_names, textposition="top right",
+            textfont=dict(size=12, color="#1A2744"),
+            hoverinfo="text", hovertext=op_hover, showlegend=False,
+        ))
+
+    if oos_lats:
+        fig.add_trace(go.Scattermap(
+            lon=oos_lons, lat=oos_lats,
+            mode="markers+text",
+            marker=dict(size=22, color="#95A5A6", opacity=0.55,
+                        symbol="circle"),
+            text=oos_names, textposition="top right",
+            textfont=dict(size=11, color="#7F8C8D"),
+            hoverinfo="text", hovertext=oos_hover, showlegend=False,
+        ))
 
     fig.update_layout(
         map_style="open-street-map",
@@ -105,10 +140,18 @@ def _build_well_map(wells: dict) -> go.Figure:
     return fig
 
 
-def _build_forecast_chart(history: pd.DataFrame, oni_anom: float) -> go.Figure:
+def _build_forecast_chart(
+    history: pd.DataFrame,
+    oni_anom: float,
+    params: WaterBalanceParams,
+    residual_std_m: float,
+    calibrated: bool,
+) -> tuple[go.Figure, int | None]:
+    """Returns (figure, days_until_critical) where the threshold is 2.0 m static column."""
     pozo1 = history[history["well_id"] == "pozo1_asr"].sort_values("date")
 
     fig = go.Figure()
+    days_to_critical: int | None = None
 
     # Historical observed values (5 points from Chequeo)
     fig.add_trace(go.Scatter(
@@ -147,26 +190,37 @@ def _build_forecast_chart(history: pd.DataFrame, oni_anom: float) -> go.Figure:
             df = df[["date", "recharge_proxy_mm", "local_rainfall_mm",
                      "extraction_l", "oni_anom", "et0_mm"]]
 
-            fc = wb_forecast(h0_m=h0, drivers=df)
+            fc = forecast_with_uncertainty(
+                h0_m=h0,
+                drivers=df,
+                params=params,
+                residual_std_m=residual_std_m,
+            )
             fc["date"] = pd.to_datetime(fc["date"])
+            days_to_critical = days_until_critical(fc, threshold_m=2.0)
 
+            forecast_label = (
+                "Pronóstico 14d (modelo calibrado)"
+                if calibrated
+                else "Pronóstico 14d (modelo sin calibrar)"
+            )
             fig.add_trace(go.Scatter(
                 x=fc["date"],
                 y=fc["nivel_predicho_m"],
                 mode="lines",
-                name="Pronóstico 14d (modelo sin calibrar)",
+                name=forecast_label,
                 line=dict(color="#00897B", width=3, dash="dash"),
             ))
 
-            # Uncertainty band (placeholder ±10% — Phase 3 derives properly)
+            band_label = "Banda 95% (LOO-CV)" if calibrated else "Banda de incertidumbre"
             fig.add_trace(go.Scatter(
                 x=fc["date"].tolist() + fc["date"].tolist()[::-1],
-                y=(fc["nivel_predicho_m"] * 1.10).tolist()
-                + (fc["nivel_predicho_m"] * 0.90).tolist()[::-1],
+                y=fc["nivel_predicho_high_m"].tolist()
+                + fc["nivel_predicho_low_m"].tolist()[::-1],
                 fill="toself",
                 fillcolor="rgba(0, 137, 123, 0.15)",
                 line=dict(color="rgba(255,255,255,0)"),
-                name="Banda de incertidumbre",
+                name=band_label,
                 hoverinfo="skip",
             ))
         except Exception as e:  # noqa: BLE001
@@ -187,10 +241,14 @@ def _build_forecast_chart(history: pd.DataFrame, oni_anom: float) -> go.Figure:
         font={"family": "Inter, sans-serif", "size": 11},
         hovermode="x unified",
     )
-    return fig
+    return fig, days_to_critical
 
 
 def _build_distribution_panel(d: dict) -> html.Div:
+    op_yield = d.get("operational_sustainable_yield_l_per_day",
+                     d.get("combined_sustainable_yield_l_per_day", 0))
+    op_headroom = d.get("operational_headroom_pct", d.get("headroom_pct", 0))
+    extraction = d["current_total_extraction_l_per_day"]
     return html.Div([
         dbc.Row([
             _info_pill("⚡ Bombeo", "Solar"),
@@ -211,13 +269,21 @@ def _build_distribution_panel(d: dict) -> html.Div:
             ),
         ], style={"marginBottom": "4px"}),
         html.Div([
-            html.Span("Capacidad combinada: ",
+            html.Span("Capacidad operativa (sólo Pozo 1): ",
                       style={"fontWeight": "600", "fontSize": "0.85rem"}),
             html.Span(
-                f"{d['combined_sustainable_yield_l_per_day']:,} L/día — uso actual "
-                f"{d['current_total_extraction_l_per_day']:,} L/día "
-                f"({100 - d['headroom_pct']}% utilización, {d['headroom_pct']}% headroom)",
+                f"{op_yield:,} L/día — uso actual "
+                f"{extraction:,} L/día "
+                f"({max(0, 100 - op_headroom)}% utilización, {op_headroom}% headroom)",
                 style={"fontSize": "0.85rem", "color": "#2C3E50"}
+            ),
+        ], style={"marginBottom": "4px"}),
+        html.Div([
+            html.Span(
+                "⚠ Pozo 2 fuera de servicio — capacidad combinada subiría a "
+                f"{d.get('combined_sustainable_yield_l_per_day_if_pozo2_repaired', 0):,} L/día tras reparación.",
+                style={"fontSize": "0.78rem", "color": "#E67E22",
+                       "fontStyle": "italic"},
             ),
         ]),
     ])
@@ -243,20 +309,45 @@ def _info_pill(label: str, value: str) -> dbc.Col:
     )
 
 
-def _build_ai_summary(oni_anom: float, enso_state: str,
-                     last_static_m: float, last_date: pd.Timestamp) -> html.Div:
+def _build_ai_summary(
+    oni_anom: float,
+    enso_state: str,
+    last_static_m: float,
+    last_date: pd.Timestamp,
+    days_to_critical: int | None,
+    cal_meta: dict,
+) -> html.Div:
     state_label = {
         "el_nino": "El Niño activo",
         "la_nina": "La Niña activa",
         "neutral": "Neutral",
     }.get(enso_state, "—")
 
+    if days_to_critical is None:
+        risk_text = "sin alerta de cruce de umbral en 14 días."
+        risk_color = "#27AE60"
+    elif days_to_critical >= 7:
+        risk_text = f"cruce previsto del umbral 2.0 m en {days_to_critical} días."
+        risk_color = "#E67E22"
+    else:
+        risk_text = f"⚠ cruce inminente del umbral 2.0 m en {days_to_critical} días."
+        risk_color = "#E74C3C"
+
+    if cal_meta.get("calibrated"):
+        cal_line = (
+            f"Modelo calibrado por LOO-CV (n=5): "
+            f"RMSE {cal_meta.get('loo_rmse_m', 0):.2f} m, "
+            f"banda 95% basada en σ residual {cal_meta.get('loo_residual_std_m', 0):.2f} m."
+        )
+    else:
+        cal_line = "Modelo aún no calibrado — usando valores placeholder de Phase 1."
+
     return html.Div([
         html.P(
             html.Span([
-                "Estado actual del sistema: ",
-                html.Strong("estable. ", style={"color": "#27AE60"}),
-                f"Última medición {last_date.strftime('%b %Y')}: columna estática "
+                "Estado actual: ",
+                html.Strong(risk_text, style={"color": risk_color}),
+                f" Última medición {last_date.strftime('%b %Y')}: columna estática "
                 f"{last_static_m:.1f} m. ENSO en estado ",
                 html.Strong(state_label),
                 f" (ONI {oni_anom:+.2f}). ",
@@ -266,8 +357,12 @@ def _build_ai_summary(oni_anom: float, enso_state: str,
                    "color": "#2C3E50", "marginBottom": "8px"},
         ),
         html.P(
-            html.Em("Resumen automático con LLM (Claude Haiku) — pendiente Phase 4. "
-                    "Texto actual generado por plantilla."),
+            cal_line,
+            style={"fontSize": "0.75rem", "color": "#5D6D7E",
+                   "marginBottom": "4px", "fontStyle": "italic"},
+        ),
+        html.P(
+            html.Em("Narrativa generada con LLM (Claude Haiku) — pendiente Phase 4."),
             style={"fontSize": "0.72rem", "color": "#7F8C8D",
                    "marginBottom": "0"},
         ),
@@ -289,6 +384,8 @@ def register_pozos_callbacks(app):
         wells = _load_wells()
         distribution = _load_distribution()
         history = _load_history()
+        params, cal_meta = _load_calibrated_params()
+        residual_std_m = float(cal_meta.get("loo_residual_std_m", 0.15))
 
         # ENSO state
         try:
@@ -303,7 +400,13 @@ def register_pozos_callbacks(app):
 
         # Map + forecast
         map_fig = _build_well_map(wells)
-        forecast_fig = _build_forecast_chart(history, oni_anom=anom)
+        forecast_fig, days_to_critical = _build_forecast_chart(
+            history,
+            oni_anom=anom,
+            params=params,
+            residual_std_m=residual_std_m,
+            calibrated=cal_meta.get("calibrated", False),
+        )
 
         # Cards
         distribution_panel = _build_distribution_panel(distribution)
@@ -315,7 +418,9 @@ def register_pozos_callbacks(app):
         last_static = float(last_row["nivel_estatico_m"]) if last_row is not None else 0.0
         last_date = last_row["date"] if last_row is not None else pd.Timestamp.now()
 
-        ai_summary = _build_ai_summary(anom, state, last_static, last_date)
+        ai_summary = _build_ai_summary(
+            anom, state, last_static, last_date, days_to_critical, cal_meta,
+        )
 
         return (map_fig, forecast_fig,
                 state_label, f"ONI {anom:+.2f}",

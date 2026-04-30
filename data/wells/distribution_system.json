@@ -1,6 +1,9 @@
 {
   "source": "NGO Provided Info/Agua.docx",
   "wells": ["pozo1_asr", "pozo2_asr"],
+  "operational_wells": ["pozo1_asr"],
+  "out_of_service": ["pozo2_asr"],
+  "operational_status_updated": "2026-04-30",
   "pumping": {
     "type": "solar",
     "lift_to_storage_m": 4,
@@ -35,6 +38,8 @@
     }
   },
   "current_total_extraction_l_per_day": 45000,
-  "combined_sustainable_yield_l_per_day": 95500,
-  "headroom_pct": 53
+  "operational_sustainable_yield_l_per_day": 52500,
+  "operational_headroom_pct": 14,
+  "combined_sustainable_yield_l_per_day_if_pozo2_repaired": 95500,
+  "headroom_pct_if_pozo2_repaired": 53
 }

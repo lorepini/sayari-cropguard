@@ -63,42 +63,94 @@ class WaterBalanceParams:
     recharge_window_days: int = 60
 
 
-# FAO-56 Kc placeholders. Maracuya value to be confirmed by teammate research.
+# FAO-56 reference Kc values. ALL VALUES UNVERIFIED — must be cross-checked
+# against FAO Irrigation & Drainage Paper 56 (Allen et al. 1998), Tables 12 &
+# 17, before being cited in any deliverable. Course rule: every academic
+# citation must be manually verified or it counts as fraud.
+#
+# Approximate canopy footprint (m^2 per plant or per huerto) is used to convert
+# Kc * ET0 (mm = L/m²) into a daily water demand in litres.
 CROP_KC_DEFAULT: dict[str, float] = {
-    "maracuya": 0.85,    # PLACEHOLDER — verify with FAO-56 / agronomy paper
-    "rice": 1.20,        # FAO-56 mid-season
-    "sugarcane": 1.25,   # FAO-56 mid-season
-    "huertos_mixed": 0.80,  # rough average for mixed kitchen gardens
+    "maracuya": 0.85,        # passion fruit, mid-season — verify
+    "maiz": 1.20,            # corn, mid-season — verify
+    "cebolla": 1.05,         # onion, mid-season — verify
+    "cilantro": 1.00,        # cilantro/coriander, mid-season — verify
+    "naranja": 0.70,         # orange (mature, no ground cover) — verify
+    "huertos_mixed": 0.85,   # rough mixed-vegetable average — verify
+    "rice": 1.20,            # FAO-56 mid-season — verify
+    "sugarcane": 1.25,       # FAO-56 mid-season — verify
+}
+
+# Approximate canopy footprint per unit. Educated estimates — refine when NGO
+# confirms actual planting density per chacra.
+CROP_CANOPY_M2: dict[str, float] = {
+    "maracuya": 2.0,         # per plant (trellised)
+    "maiz": 0.5,             # per plant
+    "cebolla": 0.05,         # per plant (very small footprint)
+    "cilantro": 0.04,        # per plant
+    "naranja": 12.0,         # per mature tree
+    "huertos_mixed": 30.0,   # per huerto (kitchen garden)
+}
+
+# Default hypothetical crop mix — pending NGO confirmation of the actual mix.
+# 3,500 maracuyá is the only hard number from the meeting. The 20 huertos are
+# split with the smaller ones holding orange trees (per NGO Apr 30 note).
+DEFAULT_CROP_MIX: dict[str, int] = {
+    "maracuya": 3500,
+    "naranja": 5,    # the smaller chacras
+    "maiz": 6,
+    "cebolla": 5,
+    "cilantro": 4,
 }
 
 
-# Combined pump capacity ceiling: Pozo 1 (52,500 L/day) + Pozo 2 (43,000 L/day),
-# both 8 h/day operation at sustainable yield. From the 2021 schematic test data
-# extrapolated to the operational Pedrollo pumps. Crop demand cannot exceed this
-# because the pumps physically cannot deliver more in a day.
-PUMP_CAPACITY_L_PER_DAY = 95500
+# Pump capacity ceiling — Pozo 1 only, since Pozo 2 was reported out of service
+# in the NGO meeting on 2026-04-30. 52,500 L/day = Pedrollo 4SR45Gm/30 at 8 h/day
+# sustainable yield (from 2021 schematic test data). Crop demand cannot exceed
+# this because the pump physically cannot deliver more in a day.
+# Restore to 95,500 L/day (combined Pozo 1 + Pozo 2) once Pozo 2 returns to service.
+PUMP_CAPACITY_L_PER_DAY = 52500
 
 
 def crop_demand_l_per_day(
     et0_mm_per_day: float,
-    n_plants_maracuya: int = 3500,
-    n_huertos: int = 20,
-    kc_maracuya: float | None = None,
+    crop_mix: dict[str, int] | None = None,
+    kc_overrides: dict[str, float] | None = None,
+    canopy_overrides: dict[str, float] | None = None,
     pump_capacity_l_per_day: float = PUMP_CAPACITY_L_PER_DAY,
 ) -> float:
     """Daily crop water demand for the Sayariy parcel.
 
-    Coarse model: per-plant demand = Kc * ET0 * effective canopy area.
-    Capped at the combined pump capacity — the wells cannot deliver more
-    even if the crops want it (deficit irrigation reality).
-    Refined in Phase 3 once teammate provides verified maracuya Kc.
+    Per-crop demand = Kc * ET0 * canopy_m2 * count, summed across the mix.
+    Capped at `pump_capacity_l_per_day` — the well cannot deliver more even if
+    the crops want it (deficit irrigation reality).
+
+    Parameters
+    ----------
+    et0_mm_per_day : reference evapotranspiration (FAO Penman-Monteith)
+    crop_mix : {crop_name: count_of_plants_or_huertos}.
+        Defaults to DEFAULT_CROP_MIX (hypothetical, pending NGO confirmation).
+    kc_overrides : per-crop Kc overrides; falls back to CROP_KC_DEFAULT
+    canopy_overrides : per-crop canopy area overrides; falls back to CROP_CANOPY_M2
     """
-    kc_m = kc_maracuya if kc_maracuya is not None else CROP_KC_DEFAULT["maracuya"]
-    canopy_m2_maracuya = n_plants_maracuya * 2.0
-    demand_maracuya_l = kc_m * et0_mm_per_day * canopy_m2_maracuya  # mm * m^2 = L
-    canopy_m2_huertos = n_huertos * 30.0
-    demand_huertos_l = CROP_KC_DEFAULT["huertos_mixed"] * et0_mm_per_day * canopy_m2_huertos
-    raw_demand = demand_maracuya_l + demand_huertos_l
+    mix = crop_mix if crop_mix is not None else DEFAULT_CROP_MIX
+    kc_table = {**CROP_KC_DEFAULT, **(kc_overrides or {})}
+    canopy_table = {**CROP_CANOPY_M2, **(canopy_overrides or {})}
+
+    raw_demand = 0.0
+    for crop, count in mix.items():
+        if count <= 0:
+            continue
+        kc = kc_table.get(crop)
+        canopy = canopy_table.get(crop)
+        if kc is None or canopy is None:
+            raise KeyError(
+                f"Crop {crop!r} missing Kc or canopy area. "
+                f"Add to CROP_KC_DEFAULT / CROP_CANOPY_M2 or pass overrides."
+            )
+        # mm/day * m² * count = L/day  (since 1 mm over 1 m² = 1 L)
+        raw_demand += kc * et0_mm_per_day * canopy * count
+
     return min(raw_demand, pump_capacity_l_per_day)
 
 
@@ -153,7 +205,42 @@ def forecast(
     return out
 
 
-# ---------- Phase 3 will add: ----------
-# def calibrate(history: pd.DataFrame, drivers: pd.DataFrame) -> WaterBalanceParams: ...
-# def forecast_with_uncertainty(...) -> pd.DataFrame:    # adds low/high bands
-# def days_until_critical(history, threshold_m, ...) -> int:
+def forecast_with_uncertainty(
+    h0_m: float,
+    drivers: pd.DataFrame,
+    params: WaterBalanceParams = WaterBalanceParams(),
+    residual_std_m: float = 0.15,
+    z: float = 1.96,
+    reference_horizon_days: int = 365,
+) -> pd.DataFrame:
+    """Forecast with a horizon-scaled uncertainty band.
+
+    The band widens as `z * residual_std_m * sqrt(t / reference_horizon_days)` —
+    random-walk-style growth normalized so that the band reaches `z * residual_std_m`
+    at the reference horizon. `residual_std_m` is the LOO-CV residual SD from
+    calibration, which is itself measured at ~annual horizons (the spacing of the
+    NGO observations), hence the 365-day default.
+    """
+    fc = forecast(h0_m=h0_m, drivers=drivers, params=params).copy()
+    horizon_days = pd.Series(range(1, len(fc) + 1), index=fc.index, dtype=float)
+    band = z * residual_std_m * (horizon_days / reference_horizon_days) ** 0.5
+    fc["nivel_predicho_low_m"] = fc["nivel_predicho_m"] - band
+    fc["nivel_predicho_high_m"] = fc["nivel_predicho_m"] + band
+    return fc
+
+
+def days_until_critical(
+    forecast_df: pd.DataFrame,
+    threshold_m: float,
+    column: str = "nivel_predicho_m",
+) -> int | None:
+    """Days from the start of the forecast until `column` first drops below
+    `threshold_m`. Returns None if the threshold is never crossed inside the
+    forecast horizon.
+    """
+    below = forecast_df[forecast_df[column] < threshold_m]
+    if below.empty:
+        return None
+    start = pd.to_datetime(forecast_df.iloc[0]["date"])
+    cross = pd.to_datetime(below.iloc[0]["date"])
+    return int((cross - start).days)

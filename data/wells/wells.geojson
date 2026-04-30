@@ -22,6 +22,7 @@
       "properties": {
         "well_id": "pozo1_asr",
         "name": "Pozo 1 ASR",
+        "status": "operational",
         "utm_east": 663913,
         "utm_north": 9235271,
         "utm_zone": "17S",
@@ -62,6 +63,8 @@
       "properties": {
         "well_id": "pozo2_asr",
         "name": "Pozo 2 ASR",
+        "status": "out_of_service",
+        "status_note": "Reportado fuera de servicio en reunión NGO 2026-04-30",
         "coordinates_status": "TBD_pending_ngo_confirmation",
         "drilled_depth_m": 19.20,
         "casing": "PVC 20 m x 160mm OD, Class PN10",
