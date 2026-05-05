@@ -11,6 +11,14 @@ import datetime as dt
 import requests
 import pandas as pd
 
+from ._cache import ttl_cache
+
+# Forecast values change hourly upstream; refreshing every 10 min is plenty
+# for the dashboard. Historical archives are static — cache 6 h.
+_FORECAST_TTL_S = 10 * 60
+_ARCHIVE_TTL_S = 6 * 60 * 60
+_ENSEMBLE_TTL_S = 30 * 60
+
 FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 ENSEMBLE_URL = "https://ensemble-api.open-meteo.com/v1/ensemble"
@@ -26,6 +34,7 @@ ENSEMBLE_DEFAULT_MODEL = "gfs_seamless"
 ENSEMBLE_MAX_DAYS = 35
 
 
+@ttl_cache(_FORECAST_TTL_S)
 def fetch_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
     """Daily precipitation + ET0 forecast for the next `days` days."""
     params = {
@@ -40,6 +49,7 @@ def fetch_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
     return _to_dataframe(r.json())
 
 
+@ttl_cache(_FORECAST_TTL_S)
 def fetch_weather_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
     """Unified daily weather forecast (Open-Meteo, no auth, free).
     Returns columns: date, tmax_c, tmin_c, precip_mm, wind_max_kmh,
@@ -83,6 +93,7 @@ def fetch_temperature_forecast(lat: float, lon: float, days: int = 14) -> pd.Dat
     return df[["date", "tmax_c", "tmin_c"]]
 
 
+@ttl_cache(_ARCHIVE_TTL_S)
 def fetch_historical(lat: float, lon: float, start: dt.date, end: dt.date) -> pd.DataFrame:
     """Daily precipitation + ET0 archive for the date range [start, end]."""
     params = {
@@ -108,6 +119,7 @@ def _to_dataframe(payload: dict) -> pd.DataFrame:
     return df
 
 
+@ttl_cache(_ENSEMBLE_TTL_S)
 def fetch_ensemble_forecast(
     lat: float,
     lon: float,

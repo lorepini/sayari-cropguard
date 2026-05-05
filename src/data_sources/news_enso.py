@@ -19,6 +19,8 @@ from urllib.parse import quote_plus
 
 import requests
 
+from ._cache import ttl_cache
+
 GOOGLE_NEWS_RSS = "https://news.google.com/rss/search"
 DEFAULT_QUERY = '("fenómeno del niño" OR "fenómeno el niño" OR "fenómeno de la niña" OR ENFEN) Perú'
 DEFAULT_HL = "es-419"
@@ -48,6 +50,8 @@ class NewsItem:
         return (ref - self.published).days
 
 
+# Google News RSS — refresh every 30 min, fine for a "news ticker" use case.
+@ttl_cache(30 * 60)
 def fetch_enso_news(
     query: str = DEFAULT_QUERY,
     max_items: int = 5,

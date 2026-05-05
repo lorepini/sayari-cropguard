@@ -19,6 +19,8 @@ from typing import Literal
 import requests
 import pandas as pd
 
+from ._cache import ttl_cache
+
 ONI_URL = "https://www.cpc.ncep.noaa.gov/data/indices/oni.ascii.txt"
 
 # DJF -> first of December of the prior year (mid = January)
@@ -30,6 +32,8 @@ SEASON_TO_MONTH = {
 EnsoState = Literal["el_nino", "la_nina", "neutral"]
 
 
+# NOAA ONI is updated monthly. 6 h cache is plenty.
+@ttl_cache(6 * 60 * 60)
 def fetch_oni() -> pd.DataFrame:
     """Fetch the full ONI history (1950-present) as a DataFrame.
 

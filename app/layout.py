@@ -88,7 +88,9 @@ def build_layout() -> dbc.Container:
 
             # Hidden store + interval (shared across tabs)
             dcc.Store(id="selected-community", data=None),
-            dcc.Interval(id="auto-refresh", interval=5 * 60 * 1000, n_intervals=0),
+            # 15-minute refresh — data sources (Open-Meteo, NOAA ONI) update
+            # at most hourly, and Open-Meteo's free tier rate-limits per IP.
+            dcc.Interval(id="auto-refresh", interval=15 * 60 * 1000, n_intervals=0),
         ],
     )
 
