@@ -13,6 +13,8 @@ No technical jargon, no chart axes, no numbers below the surface.
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from pozos_callbacks import info_tooltip
+
 
 def build_sencilla_layout() -> html.Div:
     return html.Div(
@@ -63,12 +65,18 @@ def build_sencilla_layout() -> html.Div:
                         dbc.Card(
                             [
                                 dbc.CardHeader(
-                                    html.Span(
+                                    html.Span([
                                         "🌱 ¿Hay que regar hoy?",
-                                        style={"fontWeight": "700",
-                                               "fontSize": "1.1rem",
-                                               "color": "#1A2744"},
-                                    ),
+                                        *info_tooltip(
+                                            "tip-riego",
+                                            "Recomendación de riego",
+                                            "Decisión simple sobre si conviene regar hoy o esperar.",
+                                            "Regla: (1) si en los próximos 3 días caen ≥5 mm de lluvia → no riegue, espere; (2) si el pozo está por debajo de 2,0 m → riegue solo lo esencial (priorizar maracuyá adulta); (3) en cualquier otro caso → riegue temprano por la mañana o al atardecer.",
+                                            "Lluvia: pronóstico Open-Meteo 7 días. Nivel del pozo: última medición NGO en wells_history.parquet.",
+                                        ),
+                                    ], style={"fontWeight": "700",
+                                              "fontSize": "1.1rem",
+                                              "color": "#1A2744"}),
                                     style={"backgroundColor": "white",
                                            "borderBottom": "3px solid #00897B"},
                                 ),
@@ -115,12 +123,18 @@ def build_sencilla_layout() -> html.Div:
             dbc.Card(
                 [
                     dbc.CardHeader(
-                        html.Span(
+                        html.Span([
                             "🔔 Avisos importantes",
-                            style={"fontWeight": "700",
-                                   "fontSize": "1.1rem",
-                                   "color": "#1A2744"},
-                        ),
+                            *info_tooltip(
+                                "tip-alerts",
+                                "Avisos importantes",
+                                "Alertas accionables sobre el sistema (pozo bajo, lluvia fuerte esperada, sequía en la cuenca, ENSO activo, etc.) en lenguaje claro.",
+                                "Generadas con reglas: nivel <2,0 m → 'pozo bajo'; lluvia 7 días >50 mm → 'esté listo'; SPI-3 cuenca alta <-1 → 'sequía'; ONI >+0,5 → 'El Niño activo'. La sección Pozos tiene la versión técnica con probabilidades del ensemble.",
+                                "Cálculos del modelo + Open-Meteo + NOAA ONI.",
+                            ),
+                        ], style={"fontWeight": "700",
+                                  "fontSize": "1.1rem",
+                                  "color": "#1A2744"}),
                         style={"backgroundColor": "white",
                                "borderBottom": "3px solid #00897B"},
                     ),

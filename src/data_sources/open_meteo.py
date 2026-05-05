@@ -40,26 +40,47 @@ def fetch_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
     return _to_dataframe(r.json())
 
 
-def fetch_temperature_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
-    """Daily max + min air temperature forecast (°C). Separate from fetch_forecast
-    to avoid disturbing the precip/ET0 schema used by the calibration pipeline.
-    Returns columns: date, tmax_c, tmin_c.
+def fetch_weather_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
+    """Unified daily weather forecast (Open-Meteo, no auth, free).
+    Returns columns: date, tmax_c, tmin_c, precip_mm, wind_max_kmh,
+    precip_prob_max_pct, et0_mm.
+    Open-Meteo free forecast caps at 16 days — caller should clamp.
     """
     params = {
         "latitude": lat,
         "longitude": lon,
-        "daily": "temperature_2m_max,temperature_2m_min",
-        "forecast_days": days,
+        "daily": ",".join([
+            "temperature_2m_max",
+            "temperature_2m_min",
+            "precipitation_sum",
+            "precipitation_probability_max",
+            "wind_speed_10m_max",
+            "et0_fao_evapotranspiration",
+        ]),
+        "forecast_days": min(days, 16),
         "timezone": TIMEZONE,
     }
     r = requests.get(FORECAST_URL, params=params, timeout=30)
     r.raise_for_status()
-    daily = r.json()["daily"]
+    d = r.json()["daily"]
     return pd.DataFrame({
-        "date": pd.to_datetime(daily["time"]).date,
-        "tmax_c": daily["temperature_2m_max"],
-        "tmin_c": daily["temperature_2m_min"],
+        "date": pd.to_datetime(d["time"]).date,
+        "tmax_c": d["temperature_2m_max"],
+        "tmin_c": d["temperature_2m_min"],
+        "precip_mm": d.get("precipitation_sum", [0] * len(d["time"])),
+        "precip_prob_max_pct": d.get("precipitation_probability_max",
+                                     [None] * len(d["time"])),
+        "wind_max_kmh": d.get("wind_speed_10m_max", [None] * len(d["time"])),
+        "et0_mm": d.get("et0_fao_evapotranspiration", [None] * len(d["time"])),
     })
+
+
+def fetch_temperature_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
+    """Daily max + min air temperature only — kept for backwards compatibility
+    with `_build_heat_card` etc. Prefer `fetch_weather_forecast` for new code.
+    """
+    df = fetch_weather_forecast(lat, lon, days=days)
+    return df[["date", "tmax_c", "tmin_c"]]
 
 
 def fetch_historical(lat: float, lon: float, start: dt.date, end: dt.date) -> pd.DataFrame:

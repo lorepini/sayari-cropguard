@@ -5,6 +5,7 @@ All visual structure is defined here; logic lives in callbacks.py.
 import dash_bootstrap_components as dbc
 from dash import dcc, html
 
+from pozos_callbacks import info_tooltip
 from pozos_layout import build_pozos_layout
 from sencilla_layout import build_sencilla_layout
 
@@ -50,7 +51,7 @@ def build_layout() -> dbc.Container:
                 style={"padding": "0.5rem 1rem"},
             ),
 
-            # ── Tabs (Sencilla | Cultivos | Pozos) ────────────────────────────
+            # ── Tabs (Sencilla | Pozos | Cultivos) ────────────────────────────
             dbc.Tabs(
                 [
                     dbc.Tab(
@@ -62,17 +63,17 @@ def build_layout() -> dbc.Container:
                         label_style={"fontSize": "0.95rem"},
                     ),
                     dbc.Tab(
-                        _build_crop_content(),
-                        label="🌱 Cultivos",
-                        tab_id="tab-cultivos",
+                        build_pozos_layout(),
+                        label="💧 Pozos",
+                        tab_id="tab-pozos",
                         active_label_style={"color": "#00897B",
                                             "fontWeight": "700"},
                         label_style={"fontSize": "0.95rem"},
                     ),
                     dbc.Tab(
-                        build_pozos_layout(),
-                        label="💧 Pozos",
-                        tab_id="tab-pozos",
+                        _build_crop_content(),
+                        label="🌱 Cultivos",
+                        tab_id="tab-cultivos",
                         active_label_style={"color": "#00897B",
                                             "fontWeight": "700"},
                         label_style={"fontSize": "0.95rem"},
@@ -107,9 +108,17 @@ def _build_crop_content() -> html.Div:
                                         dbc.Row(
                                             [
                                                 dbc.Col(
-                                                    html.Span("Mapa de Salud de Cultivos",
-                                                              style={"fontWeight": "600",
-                                                                     "color": "#1A2744"}),
+                                                    html.Span([
+                                                        "Mapa de Salud de Cultivos",
+                                                        *info_tooltip(
+                                                            "tip-crop-map",
+                                                            "Mapa de salud de cultivos",
+                                                            "Estado de la vegetación en cada polígono monitorizado, basado en imágenes satelitales recientes.",
+                                                            "Color = índice elegido (NDVI / NDWI / Stress %). NDVI mide salud de la vegetación (0-1, alto = verde sano). NDWI mide humedad foliar (alto = bien hidratado). Stress % combina ambos vs umbrales de Quintanilla 2024 para arroz/caña en Lambayeque. Un polígono con datos rojos sugiere visita de campo.",
+                                                            "Sentinel-2 L2A (10 m, cada 5 días). El cap de cobertura nubosa es 25%. La parcela Sayariy (azul claro) es la AOI primaria; las otras 5 son contexto regional con polígonos placeholder de 2,8 km — pendientes de polígonos reales por chacra de la NGO.",
+                                                        ),
+                                                    ], style={"fontWeight": "600",
+                                                              "color": "#1A2744"}),
                                                     width="auto",
                                                 ),
                                                 dbc.Col(
@@ -201,9 +210,17 @@ def _build_crop_content() -> html.Div:
                             dbc.Card(
                                 [
                                     dbc.CardHeader(
-                                        html.Span("📡 Alertas activas",
-                                                  style={"fontWeight": "600",
-                                                         "color": "#1A2744"}),
+                                        html.Span([
+                                            "📡 Alertas activas",
+                                            *info_tooltip(
+                                                "tip-crop-alerts",
+                                                "Alertas activas (cultivos)",
+                                                "Comunidades con vegetación en estado de vigilancia (amarillo) o alerta (rojo) en la imagen satelital más reciente.",
+                                                "Para cada comunidad: status = 'alert' si NDVI < 0.35 o stress_prob ≥ 60%; 'watch' si NDVI < 0.55 o stress_prob ≥ 40%; 'healthy' en otro caso. El texto en español lo genera Claude Haiku con los valores reales (cae a plantilla determinística si no hay API key).",
+                                                "Imagen Sentinel-2 más reciente (ver fecha en cabecera). Umbrales de Quintanilla et al. 2024 (estudio de arroz en Lambayeque).",
+                                            ),
+                                        ], style={"fontWeight": "600",
+                                                  "color": "#1A2744"}),
                                         style={"backgroundColor": "white",
                                                "borderBottom": "2px solid #00897B"},
                                     ),

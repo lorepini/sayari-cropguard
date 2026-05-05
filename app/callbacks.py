@@ -38,17 +38,20 @@ def get_latest_scores() -> gpd.GeoDataFrame:
     if history.empty or not REQUIRED.issubset(set(history.columns)):
         return _demo_scores(communities)
 
-    # Use latest date that has real status values; fall back to latest overall
-    has_status = history[history["status"].notna() & (history["status"] != "None")]
-    source = has_status if not has_status.empty else history
-    latest_date = source["date"].max()
+    # ALWAYS take the most recent scene's rows. Earlier code preferred rows
+    # whose `status` was already set, but that backfired: the upstream pipeline
+    # has a bug where some recent runs leave status=None even when NDVI is
+    # healthy, which made the dashboard prefer an older bad-cloud scene over
+    # the latest clean one. Now we take the latest date and derive status
+    # from stress_prob when it's missing.
+    latest_date = history["date"].max()
     latest = history[history["date"] == latest_date].copy()
 
-    # Derive status from stress_prob if missing
     def _derive_status(row):
-        if row["status"] and row["status"] not in (None, "None", "nan"):
-            return row["status"]
-        sp = row.get("stress_prob", 0)
+        s = row.get("status")
+        if s and s not in (None, "None", "nan"):
+            return s
+        sp = row.get("stress_prob", 0) or 0
         if sp >= 0.60:
             return "alert"
         if sp >= 0.40:

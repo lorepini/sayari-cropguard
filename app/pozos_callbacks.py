@@ -6,9 +6,13 @@ The forecast uses placeholder coefficients in src.water_balance until Phase 3
 calibrates them against the 5 NGO measurements.
 """
 import json
+import logging
 import sys
+import traceback
 from datetime import date, timedelta
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 import pandas as pd
 import plotly.graph_objects as go
@@ -650,72 +654,177 @@ def pipeline_freshness() -> tuple[str, str]:
 # Heat-wave threshold confirmed by NGO 2026-05-05: "días que superan los 30 grados"
 # require additional irrigation (40-45k L/day vs 30k baseline).
 HEAT_THRESHOLD_C = 30.0
+HEAT_HARMFUL_C = 35.0
 
 
-def _build_heat_card(local_lat: float = config.SAYARIY_LAT,
-                     local_lon: float = config.SAYARIY_LON,
-                     days: int = 14) -> tuple[html.Div, str, str]:
-    """Returns (body, badge_text, badge_color) for the heat-wave card."""
+def info_tooltip(target_id: str, title: str, what: str, how: str,
+                 source: str) -> list:
+    """Return [info-icon span, Tooltip] pair to be unpacked into a card header.
+
+    Renders a small ℹ️ next to a card title. On hover, a Bootstrap tooltip
+    explains: what the metric is, how it is computed, and the data source.
+    """
+    icon = html.Span(
+        " ℹ️",
+        id=target_id,
+        style={"fontSize": "0.85rem", "cursor": "help",
+               "color": "#7F8C8D", "marginLeft": "4px"},
+    )
+    tip = dbc.Tooltip(
+        [
+            html.Strong(title), html.Br(),
+            html.Span("Qué mide: ", style={"fontWeight": "600"}),
+            html.Span(what), html.Br(),
+            html.Span("Cómo: ", style={"fontWeight": "600"}),
+            html.Span(how), html.Br(),
+            html.Span("Fuente: ", style={"fontWeight": "600"}),
+            html.Span(source),
+        ],
+        target=target_id, placement="bottom",
+        style={"maxWidth": "360px", "fontSize": "0.78rem",
+               "textAlign": "left"},
+    )
+    return [icon, tip]
+
+
+def _weather_emoji(precip_mm: float, prob_pct: float | None) -> str:
+    p = prob_pct if prob_pct is not None else (50 if precip_mm > 0 else 0)
+    if precip_mm >= 10 or p >= 70:
+        return "🌧️"
+    if precip_mm >= 2 or p >= 40:
+        return "🌦️"
+    if precip_mm >= 0.5 or p >= 20:
+        return "⛅"
+    return "☀️"
+
+
+def _build_weather_card(local_lat: float = config.SAYARIY_LAT,
+                        local_lon: float = config.SAYARIY_LON,
+                        days: int = 14) -> tuple[html.Div, str, str]:
+    """Unified weather forecast card — temperatura + lluvia + viento por día.
+    Returns (body, badge_text, badge_color).
+    """
     try:
-        df = open_meteo.fetch_temperature_forecast(local_lat, local_lon, days=days)
+        df = open_meteo.fetch_weather_forecast(local_lat, local_lon, days=days)
     except Exception as e:  # noqa: BLE001
-        body = html.Div(
-            f"Pronóstico de temperatura no disponible ({type(e).__name__}).",
-            style={"fontSize": "0.85rem", "color": "#7F8C8D",
-                   "fontStyle": "italic"},
-        )
-        return body, "—", "secondary"
+        logger.error("weather card fetch failed: %s\n%s", e, traceback.format_exc())
+        body = html.Div([
+            html.P(
+                f"Pronóstico de tiempo no disponible ahora mismo.",
+                style={"fontSize": "0.85rem", "color": "#E67E22",
+                       "fontWeight": "600", "marginBottom": "4px"},
+            ),
+            html.P(
+                f"Detalle técnico: {type(e).__name__}: {str(e)[:140]}",
+                style={"fontSize": "0.72rem", "color": "#7F8C8D",
+                       "fontStyle": "italic", "marginBottom": "0"},
+            ),
+        ])
+        return body, "Sin datos", "secondary"
 
     hot_days = int((df["tmax_c"] > HEAT_THRESHOLD_C).sum())
+    harmful_days = int((df["tmax_c"] > HEAT_HARMFUL_C).sum())
+    rainy_days = int((df["precip_mm"] >= 2).sum())
+    rain_total = float(df["precip_mm"].sum())
     tmax_peak = float(df["tmax_c"].max())
     tmax_peak_date = df.loc[df["tmax_c"].idxmax(), "date"]
 
-    if hot_days == 0:
-        badge_text, badge_color, headline_color = "Sin alerta", "success", "#27AE60"
-        headline = f"Sin días previstos con tmax > {HEAT_THRESHOLD_C:.0f} °C en los próximos {days} días."
-    elif hot_days <= 3:
-        badge_text, badge_color, headline_color = f"{hot_days} días", "warning", "#E67E22"
-        headline = f"{hot_days} día(s) con tmax > {HEAT_THRESHOLD_C:.0f} °C en los próximos {days} días."
+    if harmful_days > 0:
+        badge_text, badge_color = f"⚠️ {harmful_days}d >35°C", "danger"
+    elif hot_days >= 4:
+        badge_text, badge_color = f"{hot_days} días calor", "warning"
+    elif rain_total >= 20:
+        badge_text, badge_color = f"💧 {rain_total:.0f} mm", "info"
     else:
-        badge_text, badge_color, headline_color = f"{hot_days} días", "danger", "#E74C3C"
-        headline = (f"⚠️ {hot_days} días con tmax > {HEAT_THRESHOLD_C:.0f} °C "
-                    f"en los próximos {days} días — riego reforzado recomendado.")
+        badge_text, badge_color = "Estable", "success"
 
-    # Mini heatmap-style stripe of next 14 days
-    swatches = []
+    # Build a per-day stripe with rain emoji + tmax
+    cells = []
     for _, row in df.iterrows():
+        d = pd.to_datetime(row["date"])
         t = float(row["tmax_c"])
-        if t > 32:   c = "#C0392B"
-        elif t > HEAT_THRESHOLD_C: c = "#E67E22"
-        elif t > 28: c = "#F1C40F"
-        else:        c = "#52BE80"
-        swatches.append(html.Div(
-            f"{t:.0f}",
-            title=f"{row['date']} · tmax {t:.1f} °C",
-            style={"backgroundColor": c, "color": "white",
-                   "fontSize": "0.7rem", "fontWeight": "600",
-                   "padding": "4px 0", "textAlign": "center",
-                   "flex": "1", "borderRight": "1px solid white"},
+        precip = float(row["precip_mm"])
+        prob = row.get("precip_prob_max_pct")
+        emoji = _weather_emoji(precip, prob)
+        if t > HEAT_HARMFUL_C:    bg = "#C0392B"; fg = "white"
+        elif t > HEAT_THRESHOLD_C: bg = "#E67E22"; fg = "white"
+        elif t > 28:               bg = "#F8C471"; fg = "#1A2744"
+        else:                      bg = "#D5F5E3"; fg = "#1A2744"
+        cells.append(html.Div(
+            [
+                html.Div(d.strftime("%a")[:3].upper(),
+                         style={"fontSize": "0.65rem", "fontWeight": "700",
+                                "color": fg, "marginBottom": "1px"}),
+                html.Div(d.strftime("%d/%m"),
+                         style={"fontSize": "0.65rem", "color": fg,
+                                "opacity": "0.8", "marginBottom": "2px"}),
+                html.Div(emoji,
+                         style={"fontSize": "1.4rem", "lineHeight": "1",
+                                "marginBottom": "2px"}),
+                html.Div(f"{t:.0f}°",
+                         style={"fontSize": "0.85rem", "fontWeight": "700",
+                                "color": fg}),
+                html.Div(
+                    f"{precip:.0f} mm" if precip >= 0.5 else "—",
+                    style={"fontSize": "0.65rem", "color": fg,
+                           "opacity": "0.8"},
+                ),
+            ],
+            title=(
+                f"{d.strftime('%A %d/%m')}\n"
+                f"tmax {t:.1f} °C, tmin {row['tmin_c']:.1f} °C\n"
+                f"lluvia {precip:.1f} mm "
+                f"({prob:.0f}% prob)" if prob is not None else
+                f"{d.strftime('%A %d/%m')}\n"
+                f"tmax {t:.1f} °C, tmin {row['tmin_c']:.1f} °C\n"
+                f"lluvia {precip:.1f} mm"
+            ),
+            style={"backgroundColor": bg, "padding": "6px 4px",
+                   "textAlign": "center", "flex": "1",
+                   "borderRight": "1px solid white", "minWidth": "44px"},
         ))
 
+    summary_pieces = []
+    if harmful_days > 0:
+        summary_pieces.append(
+            html.Span(f"🔥 {harmful_days} d >35 °C — riesgo de daño foliar.  ",
+                      style={"color": "#C0392B", "fontWeight": "600"}))
+    if hot_days > 0:
+        summary_pieces.append(
+            html.Span(f"🌡️ {hot_days} d >30 °C — riego reforzado.  ",
+                      style={"color": "#E67E22", "fontWeight": "600"}))
+    if rainy_days > 0:
+        summary_pieces.append(
+            html.Span(
+                f"💧 {rainy_days} d con lluvia (~{rain_total:.0f} mm acum.).",
+                style={"color": "#2874A6", "fontWeight": "600"}))
+    if not summary_pieces:
+        summary_pieces.append(
+            html.Span("Tiempo estable, sin lluvia ni calor extremo previstos.",
+                      style={"color": "#27AE60", "fontWeight": "600"}))
+
     body = html.Div([
-        html.P(headline,
-               style={"fontSize": "0.85rem", "color": headline_color,
-                      "fontWeight": "600", "marginBottom": "6px"}),
+        html.P(summary_pieces,
+               style={"fontSize": "0.85rem", "marginBottom": "6px"}),
         html.P(
-            f"Pico previsto: {tmax_peak:.1f} °C el {tmax_peak_date.strftime('%d/%m')}. "
-            f"Umbral NGO de riego reforzado: {HEAT_THRESHOLD_C:.0f} °C.",
+            f"Pico de calor previsto: {tmax_peak:.1f} °C el {tmax_peak_date.strftime('%d/%m')}. "
+            f"Total de lluvia 14 d: ~{rain_total:.0f} mm.",
             style={"fontSize": "0.78rem", "color": "#5D6D7E",
                    "marginBottom": "8px"},
         ),
-        html.Div(swatches,
+        html.Div(cells,
                  style={"display": "flex", "borderRadius": "4px",
-                        "overflow": "hidden", "marginBottom": "4px"}),
-        html.P("tmax °C por día (próximos 14 días, fuente Open-Meteo)",
+                        "overflow": "hidden", "marginBottom": "4px",
+                        "border": "1px solid #ECF0F1"}),
+        html.P("tmax °C + lluvia diaria (Open-Meteo, GFS-GEFS para los siguientes 14 días)",
                style={"fontSize": "0.7rem", "color": "#95A5A6",
                       "fontStyle": "italic", "marginBottom": "0"}),
     ])
     return body, badge_text, badge_color
+
+
+# Backwards-compatible alias — the layout still calls _build_heat_card.
+_build_heat_card = _build_weather_card
 
 
 def _build_crop_stress_card(days: int = 16) -> tuple[html.Div, str, str]:
