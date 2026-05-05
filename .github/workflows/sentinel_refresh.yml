@@ -1,0 +1,96 @@
+name: Sentinel-2 data refresh
+
+# Sentinel-2 has a 5-day revisit over Lambayeque (tile 17MPN). About half of
+# scenes get rejected for cloud cover (>25%), so we poll daily — the pipeline
+# short-circuits if no new scene is available, and we only commit when the
+# parquet actually changes. Daily cadence uses ~450 minutes/month, well within
+# the 2,000-minute GitHub Actions free tier.
+
+on:
+  schedule:
+    - cron: '0 3 * * *'   # 03:00 UTC daily = 22:00 Lima, after typical scene publication
+  workflow_dispatch:       # also allow manual runs from the Actions tab
+
+concurrency:
+  group: sentinel-refresh
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write
+      issues: write
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run pipeline
+        env:
+          CDSE_USER: ${{ secrets.CDSE_USER }}
+          CDSE_PASSWORD: ${{ secrets.CDSE_PASSWORD }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$CDSE_USER" ]; then
+            echo "::error::Missing CDSE_USER secret. Add it under Settings → Secrets and variables → Actions."
+            exit 1
+          fi
+          python pipeline.py --scenes 1
+
+      - name: Record run timestamp
+        if: always()
+        run: |
+          mkdir -p data/processed
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > data/processed/.last_pipeline_run.txt
+
+      - name: Commit updated data
+        if: success()
+        run: |
+          git config user.name "cropguard-bot"
+          git config user.email "actions@github.com"
+          git add data/processed/index_history.parquet \
+                  data/processed/.last_pipeline_run.txt
+          if git diff --cached --quiet; then
+            echo "No data changes (no new scene available, or scene was duplicate)."
+            exit 0
+          fi
+          git commit -m "chore(data): scheduled Sentinel-2 refresh $(date -u +%Y-%m-%d)"
+          git push
+
+      - name: Open GitHub issue on failure
+        if: failure()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const today = new Date().toISOString().slice(0, 10);
+            const runUrl = `${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
+            await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title: `Sentinel-2 refresh failed (${today})`,
+              body: [
+                `The scheduled pipeline run failed.`,
+                ``,
+                `**Likely causes:**`,
+                `- CDSE OAuth token rejected (rotate password / re-test)`,
+                `- No cloud-free scenes in the AOI for the last 30 days`,
+                `- Open-Meteo / NOAA endpoint changed schema`,
+                `- Disk full (rare on GitHub-hosted runner)`,
+                ``,
+                `**Logs:** ${runUrl}`,
+              ].join('\n'),
+              labels: ['ci', 'pipeline-failure'],
+            });
