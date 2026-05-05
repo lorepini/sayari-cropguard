@@ -40,6 +40,28 @@ def fetch_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
     return _to_dataframe(r.json())
 
 
+def fetch_temperature_forecast(lat: float, lon: float, days: int = 14) -> pd.DataFrame:
+    """Daily max + min air temperature forecast (°C). Separate from fetch_forecast
+    to avoid disturbing the precip/ET0 schema used by the calibration pipeline.
+    Returns columns: date, tmax_c, tmin_c.
+    """
+    params = {
+        "latitude": lat,
+        "longitude": lon,
+        "daily": "temperature_2m_max,temperature_2m_min",
+        "forecast_days": days,
+        "timezone": TIMEZONE,
+    }
+    r = requests.get(FORECAST_URL, params=params, timeout=30)
+    r.raise_for_status()
+    daily = r.json()["daily"]
+    return pd.DataFrame({
+        "date": pd.to_datetime(daily["time"]).date,
+        "tmax_c": daily["temperature_2m_max"],
+        "tmin_c": daily["temperature_2m_min"],
+    })
+
+
 def fetch_historical(lat: float, lon: float, start: dt.date, end: dt.date) -> pd.DataFrame:
     """Daily precipitation + ET0 archive for the date range [start, end]."""
     params = {

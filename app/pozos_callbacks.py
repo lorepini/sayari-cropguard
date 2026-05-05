@@ -12,14 +12,21 @@ from pathlib import Path
 
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Input, Output, html
+from dash import Input, Output, State, html, no_update
 import dash_bootstrap_components as dbc
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from src.data_sources import open_meteo, noaa_oni, andes_rainfall
+import config
+from src.crop_stress import (
+    crop_label_es,
+    crop_stress_forecast,
+    reason_label_es,
+)
+from src.data_sources import open_meteo, noaa_oni, andes_rainfall, news_enso
 from src.water_balance import (
     PUMP_CAPACITY_L_PER_DAY,
     WaterBalanceParams,
+    cross_probability,
     days_until_critical,
     forecast_ensemble,
     forecast_with_uncertainty,
@@ -61,38 +68,35 @@ def _load_history() -> pd.DataFrame:
 
 def _build_well_map(wells: dict) -> go.Figure:
     op_lats, op_lons, op_names, op_hover = [], [], [], []
-    oos_lats, oos_lons, oos_names, oos_hover = [], [], [], []
+    backup_lats, backup_lons, backup_names, backup_hover = [], [], [], []
 
     for f in wells["features"]:
         coords = f["geometry"]["coordinates"]
         p = f["properties"]
-        is_pozo2 = p["well_id"] == "pozo2_asr"
-        is_oos = p.get("status") == "out_of_service"
-        # Pozo 2 has placeholder coords (same as Pozo 1) — nudge so both render
-        lon = coords[0] + (0.003 if is_pozo2 else 0)
-        lat = coords[1] + (0.002 if is_pozo2 else 0)
+        status = p.get("status")
+        is_backup = status == "respaldo"
+        lon, lat = coords[0], coords[1]
         sustainable = p.get("sustainable_yield_l_per_day", "—")
         depth = p.get("drilled_depth_m", "—")
         pump = p.get("operational_pump_model", "—")
-        coord_note = "" if not is_pozo2 else "<br><i>(coords aprox - pendientes)</i>"
         status_note = (
-            "<br><b style='color:#E74C3C'>⚠ FUERA DE SERVICIO</b>"
-            if is_oos else ""
+            "<br><b style='color:#E67E22'>🟠 RESPALDO (no operativo)</b>"
+            if is_backup else ""
         )
         hover_text = (
-            f"<b>{p['name']}</b>{status_note}{coord_note}<br>"
+            f"<b>{p['name']}</b>{status_note}<br>"
             f"Profundidad: {depth} m<br>"
             f"Bomba: {pump}<br>"
             f"Yield sostenible: {sustainable:,} L/día"
             if isinstance(sustainable, int)
-            else f"<b>{p['name']}</b>{status_note}{coord_note}<br>"
+            else f"<b>{p['name']}</b>{status_note}<br>"
                  f"Profundidad: {depth} m<br>Bomba: {pump}"
         )
 
-        if is_oos:
-            oos_lats.append(lat); oos_lons.append(lon)
-            oos_names.append(p["name"] + " (fuera de servicio)")
-            oos_hover.append(hover_text)
+        if is_backup:
+            backup_lats.append(lat); backup_lons.append(lon)
+            backup_names.append(p["name"] + " (respaldo)")
+            backup_hover.append(hover_text)
         else:
             op_lats.append(lat); op_lons.append(lon)
             op_names.append(p["name"])
@@ -122,15 +126,15 @@ def _build_well_map(wells: dict) -> go.Figure:
             hoverinfo="text", hovertext=op_hover, showlegend=False,
         ))
 
-    if oos_lats:
+    if backup_lats:
         fig.add_trace(go.Scattermap(
-            lon=oos_lons, lat=oos_lats,
+            lon=backup_lons, lat=backup_lats,
             mode="markers+text",
-            marker=dict(size=22, color="#95A5A6", opacity=0.55,
+            marker=dict(size=24, color="#E67E22", opacity=0.85,
                         symbol="circle"),
-            text=oos_names, textposition="top right",
-            textfont=dict(size=11, color="#7F8C8D"),
-            hoverinfo="text", hovertext=oos_hover, showlegend=False,
+            text=backup_names, textposition="top right",
+            textfont=dict(size=11, color="#1A2744"),
+            hoverinfo="text", hovertext=backup_hover, showlegend=False,
         ))
 
     fig.update_layout(
@@ -143,12 +147,14 @@ def _build_well_map(wells: dict) -> go.Figure:
     return fig
 
 
-def _run_ensemble_forecast(h0_m: float, oni_anom: float,
-                           params: WaterBalanceParams) -> pd.DataFrame:
+def _run_ensemble_forecast(
+    h0_m: float, oni_anom: float, params: WaterBalanceParams
+) -> tuple[pd.DataFrame, pd.DataFrame]:
     """Build 35-day ensemble forecast: real GFS-GEFS members through the
-    water-balance model, returning P10/P50/P90 trajectories.
+    water-balance model. Returns (percentile_df, matrix) where matrix is the
+    raw (date × member) trajectories — needed for `cross_probability`.
     """
-    precip_df, et0_df = open_meteo.fetch_ensemble_forecast(-6.91, -79.51, days=35)
+    precip_df, et0_df = open_meteo.fetch_ensemble_forecast(config.SAYARIY_LAT, config.SAYARIY_LON, days=35)
     andes_pr = andes_rainfall.fetch_upper_basin_ensemble_forecast(days=35)
 
     precip_members = sorted(c for c in precip_df.columns if c.startswith("member_"))
@@ -173,12 +179,13 @@ def _run_ensemble_forecast(h0_m: float, oni_anom: float,
                 .fillna(0).values[:len(precip_df)],
             "local_rainfall_mm": precip_df[precip_members[i]].values,
             "et0_mm": et0_df[et0_members[i]].values,
-            "extraction_l": 45000,
+            "extraction_l": 50000,
             "oni_anom": oni_anom,
         })
         drivers_list.append(df)
 
-    return forecast_ensemble(h0_m=h0_m, drivers_per_member=drivers_list, params=params)
+    return forecast_ensemble(h0_m=h0_m, drivers_per_member=drivers_list,
+                             params=params, return_matrix=True)
 
 
 def _run_seasonal_extension(h0_after_ensemble: float, start_date: date,
@@ -190,7 +197,7 @@ def _run_seasonal_extension(h0_after_ensemble: float, start_date: date,
     try:
         end = date.today() - timedelta(days=2)
         start = date(2000, 1, 1)
-        local_archive = open_meteo.fetch_historical(-6.91, -79.51, start, end)
+        local_archive = open_meteo.fetch_historical(config.SAYARIY_LAT, config.SAYARIY_LON, start, end)
         andes_archive = andes_rainfall.fetch_upper_basin_history(
             start, end, multipoint=False
         ).rename(columns={
@@ -222,7 +229,7 @@ def _run_seasonal_extension(h0_after_ensemble: float, start_date: date,
                     else local_seas.df["p50_et0_mm"].values,
                 "recharge_proxy_mm": andes_seas.df[a_col].rolling(60, min_periods=1)
                     .sum().shift(14).fillna(0).values,
-                "extraction_l": 45000,
+                "extraction_l": 50000,
                 "oni_anom": oni_anom,
             })
             from src.water_balance import forecast as _fc
@@ -246,12 +253,17 @@ def _build_forecast_chart(
     params: WaterBalanceParams,
     residual_std_m: float,
     calibrated: bool,
-) -> tuple[go.Figure, int | None]:
-    """Returns (figure, days_until_critical) where the threshold is 2.0 m static column."""
+) -> tuple[go.Figure, int | None, dict[int, float]]:
+    """Returns (figure, days_until_critical, crossing_probabilities).
+
+    crossing_probabilities: {horizon_days: probability} for 7, 14, 28 days,
+    computed from the raw 30-member ensemble (not the median).
+    """
     pozo1 = history[history["well_id"] == "pozo1_asr"].sort_values("date")
 
     fig = go.Figure()
     days_to_critical: int | None = None
+    crossing_probs: dict[int, float] = {}
 
     # Historical observed values (5 points from Chequeo)
     fig.add_trace(go.Scatter(
@@ -278,10 +290,13 @@ def _build_forecast_chart(
         h0 = float(last["nivel_estatico_m"])
 
         try:
-            ensemble_df = _run_ensemble_forecast(h0, oni_anom, params)
+            ensemble_df, ensemble_matrix = _run_ensemble_forecast(h0, oni_anom, params)
             ensemble_df["date"] = pd.to_datetime(ensemble_df["date"])
             days_to_critical = days_until_critical(ensemble_df, threshold_m=2.0,
                                                     column="nivel_p50_m")
+            for horizon in (7, 14, 28):
+                crossing_probs[horizon] = cross_probability(
+                    ensemble_matrix, threshold_m=2.0, horizon_days=horizon)
 
             # Median (P50) trajectory
             fig.add_trace(go.Scatter(
@@ -358,17 +373,19 @@ def _build_forecast_chart(
         font={"family": "Inter, sans-serif", "size": 11},
         hovermode="x unified",
     )
-    return fig, days_to_critical
+    return fig, days_to_critical, crossing_probs
 
 
 def _build_distribution_panel(d: dict) -> html.Div:
-    op_yield = d.get("operational_sustainable_yield_l_per_day",
-                     d.get("combined_sustainable_yield_l_per_day", 0))
-    op_headroom = d.get("operational_headroom_pct", d.get("headroom_pct", 0))
+    op_yield = d.get("operational_sustainable_yield_l_per_day", 0)
     extraction = d["current_total_extraction_l_per_day"]
+    household = d.get("current_household_l_per_day", 0)
+    crop_normal = d.get("current_crop_l_per_day_normal_season", 0)
+    crop_high = d.get("current_crop_l_per_day_high_season", 0)
+    backup_combined = d.get("combined_sustainable_yield_l_per_day_if_pozo2_active", 0)
     return html.Div([
         dbc.Row([
-            _info_pill("⚡ Bombeo", "Solar"),
+            _info_pill("⚡ Bombeo", "Solar 2\""),
             _info_pill("📦 Almacenamiento", f"{d['storage']['total_storage_l']:,} L"),
             _info_pill("🚰 Tubería principal",
                       f"{d['distribution']['main_pipe_length_m']} m × {d['distribution']['main_pipe_diameter_in']}\" HDPE"),
@@ -380,25 +397,31 @@ def _build_distribution_panel(d: dict) -> html.Div:
         html.Div([
             html.Span("Servicio: ", style={"fontWeight": "600", "fontSize": "0.85rem"}),
             html.Span(
-                f"{d['irrigation']['served_units']['huertos']} huertos + "
-                f"{d['irrigation']['served_units']['maracuya_plants']:,} plantas de maracuyá + vivienda",
+                f"{d['irrigation']['served_units']['huertos']} huertos (10 ha) + "
+                f"{d['irrigation']['served_units']['maracuya_plants']:,} plantas de maracuyá (3 ha) + viviendas",
                 style={"fontSize": "0.85rem", "color": "#2C3E50"}
             ),
         ], style={"marginBottom": "4px"}),
         html.Div([
-            html.Span("Capacidad operativa (sólo Pozo 1): ",
+            html.Span("Bombeo Pozo 1: ",
                       style={"fontWeight": "600", "fontSize": "0.85rem"}),
             html.Span(
-                f"{op_yield:,} L/día — uso actual "
-                f"{extraction:,} L/día "
-                f"({max(0, 100 - op_headroom)}% utilización, {op_headroom}% headroom)",
+                f"{extraction:,} L/día (~4 h, solar). Tope físico ≈ {op_yield:,} L/día.",
+                style={"fontSize": "0.85rem", "color": "#2C3E50"}
+            ),
+        ], style={"marginBottom": "4px"}),
+        html.Div([
+            html.Span("Reparto: ",
+                      style={"fontWeight": "600", "fontSize": "0.85rem"}),
+            html.Span(
+                f"viviendas {household:,} L/día · cultivos {crop_normal:,} L/día (May-Sep) → {crop_high:,} L/día (Oct-Abr)",
                 style={"fontSize": "0.85rem", "color": "#2C3E50"}
             ),
         ], style={"marginBottom": "4px"}),
         html.Div([
             html.Span(
-                "⚠ Pozo 2 fuera de servicio — capacidad combinada subiría a "
-                f"{d.get('combined_sustainable_yield_l_per_day_if_pozo2_repaired', 0):,} L/día tras reparación.",
+                f"🟠 Pozo 2 en respaldo — la NGO lo activa si el Pozo 1 falla. "
+                f"Capacidad combinada con Pozo 2 activo ≈ {backup_combined:,} L/día.",
                 style={"fontSize": "0.78rem", "color": "#E67E22",
                        "fontStyle": "italic"},
             ),
@@ -454,7 +477,11 @@ def _build_ai_summary(
     last_date: pd.Timestamp,
     days_to_critical: int | None,
     cal_meta: dict,
+    pct: float | None = None,
     drought: dict | None = None,
+    freshness_label: str | None = None,
+    freshness_color: str | None = None,
+    crossing_probs: dict[int, float] | None = None,
 ) -> html.Div:
     state_label = {
         "el_nino": "El Niño activo",
@@ -462,7 +489,20 @@ def _build_ai_summary(
         "neutral": "Neutral",
     }.get(enso_state, "—")
 
-    if days_to_critical is None:
+    # Prefer the ensemble probability framing when available — more honest
+    # than a single median-line "X days" answer for the NGO.
+    if crossing_probs:
+        p14 = crossing_probs.get(14, 0.0) * 100
+        if p14 < 10:
+            risk_text = f"probabilidad baja de cruzar 2,0 m en 2 semanas ({p14:.0f}%)."
+            risk_color = "#27AE60"
+        elif p14 < 40:
+            risk_text = f"probabilidad moderada de cruzar 2,0 m en 2 semanas ({p14:.0f}%)."
+            risk_color = "#E67E22"
+        else:
+            risk_text = f"⚠ probabilidad alta de cruzar 2,0 m en 2 semanas ({p14:.0f}%)."
+            risk_color = "#E74C3C"
+    elif days_to_critical is None:
         risk_text = "sin alerta de cruce de umbral en 14 días."
         risk_color = "#27AE60"
     elif days_to_critical >= 7:
@@ -494,20 +534,36 @@ def _build_ai_summary(
                 f"(n = {drought['n_years']} años)."
             )
 
+    pct_segment = (
+        f" Capacidad del pozo: {pct:.0f}% ({last_static_m:.1f} m de 3,5 m). "
+        if pct is not None else
+        f" Columna estática: {last_static_m:.1f} m. "
+    )
     return html.Div([
         html.P(
             html.Span([
                 "Estado actual: ",
                 html.Strong(risk_text, style={"color": risk_color}),
-                f" Última medición {last_date.strftime('%b %Y')}: columna estática "
-                f"{last_static_m:.1f} m. ENSO en estado ",
+                f" Última medición {last_date.strftime('%b %Y')}.",
+                pct_segment,
+                "ENSO en estado ",
                 html.Strong(state_label),
                 f" (ONI {oni_anom:+.2f}). ",
-                "Capacidad de bombas usada al 47%.",
+                "Pozo 1 al 100% de capacidad de bombeo (~50.000 L/día); Pozo 2 en respaldo.",
             ]),
             style={"fontSize": "0.85rem", "lineHeight": "1.5",
                    "color": "#2C3E50", "marginBottom": "8px"},
         ),
+        html.P([
+            html.Span("📉 Probabilidad de cruzar 2,0 m: ",
+                      style={"fontSize": "0.78rem", "color": "#5D6D7E",
+                             "fontWeight": "600"}),
+            html.Span(
+                " · ".join(f"{h//7} sem {(crossing_probs.get(h, 0)*100):.0f}%"
+                           for h in (7, 14, 28)) + " (ensemble GFS-GEFS)",
+                style={"fontSize": "0.78rem", "color": "#1A2744"},
+            ),
+        ], style={"marginBottom": "4px"}) if crossing_probs else html.Div(),
         html.P(
             cal_line,
             style={"fontSize": "0.75rem", "color": "#5D6D7E",
@@ -518,12 +574,408 @@ def _build_ai_summary(
             style={"fontSize": "0.78rem", "color": "#1A2744",
                    "fontWeight": "600", "marginBottom": "4px"},
         ) if drought_line else html.Div(),
+        html.P([
+            html.Span("🛰️ Última actualización satelital: ",
+                      style={"fontSize": "0.75rem", "color": "#7F8C8D"}),
+            html.Strong(freshness_label or "—",
+                        style={"fontSize": "0.78rem",
+                               "color": freshness_color or "#7F8C8D"}),
+        ], style={"marginBottom": "4px"}) if freshness_label else html.Div(),
         html.P(
             html.Em("Narrativa generada con LLM (Claude Haiku) — pendiente Phase 4."),
             style={"fontSize": "0.72rem", "color": "#7F8C8D",
                    "marginBottom": "0"},
         ),
     ])
+
+
+# Pozo 1 reference levels for the % capacity computation. NGO 2026-05-05
+# explicitly asked to see the well as "% de capacidad disponible" instead of
+# raw meters. We anchor 100% to the schematic baseline static column (3.5 m,
+# matches Alarcón 2021 + the first June 2022 NGO measurement) and 0% to the
+# bottom of the operational range (the 2.0 m critical threshold used by
+# `days_until_critical`).
+POZO1_FULL_M = 3.5
+POZO1_CRITICAL_M = 2.0
+
+
+def _pct_capacity(static_m: float, full_m: float = POZO1_FULL_M,
+                  critical_m: float = POZO1_CRITICAL_M) -> float:
+    """Map a water-column height (m) to a 0-100 % capacity scale."""
+    if full_m <= critical_m:
+        return 0.0
+    pct = (static_m - critical_m) / (full_m - critical_m) * 100.0
+    return max(0.0, min(100.0, pct))
+
+
+def _level_card_color(pct: float) -> str:
+    if pct >= 60:
+        return "#27AE60"
+    if pct >= 30:
+        return "#E67E22"
+    return "#E74C3C"
+
+
+PIPELINE_MARKER = ROOT / "data" / "processed" / ".last_pipeline_run.txt"
+
+
+def pipeline_freshness() -> tuple[str, str]:
+    """Return (label, color) describing how stale the data pipeline is.
+
+    Reads the marker file written by the GitHub Action on each scheduled run.
+    Falls back to the index_history.parquet mtime if the marker is missing
+    (e.g. local dev where the action hasn't run).
+    """
+    try:
+        if PIPELINE_MARKER.exists():
+            ts = pd.Timestamp(PIPELINE_MARKER.read_text().strip())
+        elif WELLS_HISTORY.with_name("index_history.parquet").exists():
+            mtime = WELLS_HISTORY.with_name("index_history.parquet").stat().st_mtime
+            ts = pd.Timestamp(mtime, unit="s", tz="UTC")
+        else:
+            return "sin datos", "#95A5A6"
+        if ts.tzinfo is None:
+            ts = ts.tz_localize("UTC")
+        age_hours = (pd.Timestamp.now(tz="UTC") - ts).total_seconds() / 3600
+        if age_hours < 36:
+            return f"hace {int(age_hours)} h", "#27AE60"
+        days = int(age_hours / 24)
+        if days < 7:
+            return f"hace {days} d", "#E67E22"
+        return f"hace {days} d", "#E74C3C"
+    except Exception:
+        return "desconocido", "#95A5A6"
+
+
+# Heat-wave threshold confirmed by NGO 2026-05-05: "días que superan los 30 grados"
+# require additional irrigation (40-45k L/day vs 30k baseline).
+HEAT_THRESHOLD_C = 30.0
+
+
+def _build_heat_card(local_lat: float = config.SAYARIY_LAT,
+                     local_lon: float = config.SAYARIY_LON,
+                     days: int = 14) -> tuple[html.Div, str, str]:
+    """Returns (body, badge_text, badge_color) for the heat-wave card."""
+    try:
+        df = open_meteo.fetch_temperature_forecast(local_lat, local_lon, days=days)
+    except Exception as e:  # noqa: BLE001
+        body = html.Div(
+            f"Pronóstico de temperatura no disponible ({type(e).__name__}).",
+            style={"fontSize": "0.85rem", "color": "#7F8C8D",
+                   "fontStyle": "italic"},
+        )
+        return body, "—", "secondary"
+
+    hot_days = int((df["tmax_c"] > HEAT_THRESHOLD_C).sum())
+    tmax_peak = float(df["tmax_c"].max())
+    tmax_peak_date = df.loc[df["tmax_c"].idxmax(), "date"]
+
+    if hot_days == 0:
+        badge_text, badge_color, headline_color = "Sin alerta", "success", "#27AE60"
+        headline = f"Sin días previstos con tmax > {HEAT_THRESHOLD_C:.0f} °C en los próximos {days} días."
+    elif hot_days <= 3:
+        badge_text, badge_color, headline_color = f"{hot_days} días", "warning", "#E67E22"
+        headline = f"{hot_days} día(s) con tmax > {HEAT_THRESHOLD_C:.0f} °C en los próximos {days} días."
+    else:
+        badge_text, badge_color, headline_color = f"{hot_days} días", "danger", "#E74C3C"
+        headline = (f"⚠️ {hot_days} días con tmax > {HEAT_THRESHOLD_C:.0f} °C "
+                    f"en los próximos {days} días — riego reforzado recomendado.")
+
+    # Mini heatmap-style stripe of next 14 days
+    swatches = []
+    for _, row in df.iterrows():
+        t = float(row["tmax_c"])
+        if t > 32:   c = "#C0392B"
+        elif t > HEAT_THRESHOLD_C: c = "#E67E22"
+        elif t > 28: c = "#F1C40F"
+        else:        c = "#52BE80"
+        swatches.append(html.Div(
+            f"{t:.0f}",
+            title=f"{row['date']} · tmax {t:.1f} °C",
+            style={"backgroundColor": c, "color": "white",
+                   "fontSize": "0.7rem", "fontWeight": "600",
+                   "padding": "4px 0", "textAlign": "center",
+                   "flex": "1", "borderRight": "1px solid white"},
+        ))
+
+    body = html.Div([
+        html.P(headline,
+               style={"fontSize": "0.85rem", "color": headline_color,
+                      "fontWeight": "600", "marginBottom": "6px"}),
+        html.P(
+            f"Pico previsto: {tmax_peak:.1f} °C el {tmax_peak_date.strftime('%d/%m')}. "
+            f"Umbral NGO de riego reforzado: {HEAT_THRESHOLD_C:.0f} °C.",
+            style={"fontSize": "0.78rem", "color": "#5D6D7E",
+                   "marginBottom": "8px"},
+        ),
+        html.Div(swatches,
+                 style={"display": "flex", "borderRadius": "4px",
+                        "overflow": "hidden", "marginBottom": "4px"}),
+        html.P("tmax °C por día (próximos 14 días, fuente Open-Meteo)",
+               style={"fontSize": "0.7rem", "color": "#95A5A6",
+                      "fontStyle": "italic", "marginBottom": "0"}),
+    ])
+    return body, badge_text, badge_color
+
+
+def _build_crop_stress_card(days: int = 16) -> tuple[html.Div, str, str]:
+    """Per-crop stress forecast for the next 16 days (Open-Meteo cap).
+    Returns (body, badge_text, badge_color).
+    """
+    try:
+        temp = open_meteo.fetch_temperature_forecast(
+            config.SAYARIY_LAT, config.SAYARIY_LON, days=days)
+        weather = open_meteo.fetch_forecast(
+            config.SAYARIY_LAT, config.SAYARIY_LON, days=days)
+        fc = temp.merge(weather[["date", "et0_mm"]], on="date", how="inner")
+        per_day, summaries = crop_stress_forecast(fc)
+    except Exception as e:  # noqa: BLE001
+        body = html.Div(
+            f"Pronóstico de estrés no disponible ({type(e).__name__}).",
+            style={"fontSize": "0.85rem", "color": "#7F8C8D",
+                   "fontStyle": "italic"},
+        )
+        return body, "—", "secondary"
+
+    n_supply = int(per_day["supply_stress"].sum())
+    n_heat = int(per_day["heat_day"].sum())
+    n_harmful = int(per_day["heat_harmful"].sum())
+    n_total = int(per_day["stress_day"].sum())
+    avg_demand = float(per_day["total_demand_l"].mean())
+    cap = float(per_day["crop_supply_cap_l"].iloc[0])
+    util_pct = min(100, avg_demand / cap * 100)
+
+    if n_harmful > 0 or n_total >= 5:
+        badge_text, badge_color, headline_color = f"{n_total} días estrés", "danger", "#E74C3C"
+    elif n_total > 0:
+        badge_text, badge_color, headline_color = f"{n_total} días", "warning", "#E67E22"
+    else:
+        badge_text, badge_color, headline_color = "Sin alerta", "success", "#27AE60"
+
+    headline_bits = []
+    if n_total == 0:
+        headline_bits.append(f"Sin estrés esperado en los próximos {days} días.")
+    else:
+        headline_bits.append(f"{n_total} día(s) con riesgo en los próximos {days}.")
+    headline_bits.append(
+        f"Bombeo cubre {util_pct:.0f}% de la demanda media de cultivos."
+    )
+
+    table_rows = [html.Tr([
+        html.Th("Cultivo", style={"fontSize": "0.78rem", "color": "#7F8C8D",
+                                  "fontWeight": "600", "padding": "4px 8px"}),
+        html.Th("L/día", style={"fontSize": "0.78rem", "color": "#7F8C8D",
+                                "fontWeight": "600", "padding": "4px 8px",
+                                "textAlign": "right"}),
+        html.Th("Días estrés", style={"fontSize": "0.78rem", "color": "#7F8C8D",
+                                      "fontWeight": "600", "padding": "4px 8px",
+                                      "textAlign": "right"}),
+        html.Th("Pico", style={"fontSize": "0.78rem", "color": "#7F8C8D",
+                               "fontWeight": "600", "padding": "4px 8px"}),
+    ])]
+    for s in summaries[:8]:
+        if s.avg_daily_demand_l < 50:  # skip negligible crops
+            continue
+        peak_text = (
+            f"{s.peak_stress_date.strftime('%d/%m')} · {reason_label_es(s.peak_stress_reason)}"
+            if s.peak_stress_date is not None else "—"
+        )
+        stress_color = "#E74C3C" if s.stress_days > 0 else "#5D6D7E"
+        table_rows.append(html.Tr([
+            html.Td(crop_label_es(s.crop),
+                    style={"fontSize": "0.82rem", "color": "#1A2744",
+                           "padding": "4px 8px", "fontWeight": "500"}),
+            html.Td(f"{s.avg_daily_demand_l:,.0f}",
+                    style={"fontSize": "0.82rem", "color": "#5D6D7E",
+                           "padding": "4px 8px", "textAlign": "right"}),
+            html.Td(str(s.stress_days),
+                    style={"fontSize": "0.82rem", "color": stress_color,
+                           "padding": "4px 8px", "textAlign": "right",
+                           "fontWeight": "600"}),
+            html.Td(peak_text,
+                    style={"fontSize": "0.78rem", "color": "#5D6D7E",
+                           "padding": "4px 8px"}),
+        ]))
+
+    body = html.Div([
+        html.P(" ".join(headline_bits),
+               style={"fontSize": "0.85rem", "color": headline_color,
+                      "fontWeight": "600", "marginBottom": "8px"}),
+        html.Div([
+            html.Span(f"🌡️ {n_heat} días >30°C  ",
+                      style={"fontSize": "0.78rem", "color": "#E67E22"}),
+            html.Span(f"🔥 {n_harmful} días >35°C  ",
+                      style={"fontSize": "0.78rem", "color": "#C0392B"}),
+            html.Span(f"💧 {n_supply} días tope de bombeo",
+                      style={"fontSize": "0.78rem", "color": "#2874A6"}),
+        ], style={"marginBottom": "8px"}),
+        html.Table(
+            table_rows,
+            style={"width": "100%", "borderCollapse": "collapse",
+                   "marginBottom": "4px"},
+        ),
+        html.P(
+            "Demanda = Kc × ET₀ × área-mojada × plantas, con multiplicador estacional NGO. "
+            "Estrés = déficit >20% O calor >35°C.",
+            style={"fontSize": "0.7rem", "color": "#95A5A6",
+                   "fontStyle": "italic", "marginBottom": "0"},
+        ),
+    ])
+    return body, badge_text, badge_color
+
+
+def _build_news_card(max_items: int = 3) -> html.Div:
+    items = news_enso.fetch_enso_news(max_items=max_items)
+    if not items:
+        return html.Div(
+            "No hay noticias recientes disponibles (red o RSS sin respuesta).",
+            style={"fontSize": "0.85rem", "color": "#7F8C8D",
+                   "fontStyle": "italic", "padding": "8px 0"},
+        )
+    rows = []
+    for it in items:
+        rows.append(html.Div(
+            [
+                html.Div([
+                    html.Span(it.source,
+                              style={"fontWeight": "700", "fontSize": "0.78rem",
+                                     "color": "#2874A6"}),
+                    html.Span(f" · {it.published_es()}",
+                              style={"fontSize": "0.75rem", "color": "#7F8C8D"}),
+                ], style={"marginBottom": "2px"}),
+                html.A(
+                    it.title,
+                    href=it.url, target="_blank", rel="noopener",
+                    style={"fontSize": "0.88rem", "color": "#1A2744",
+                           "fontWeight": "600", "textDecoration": "none",
+                           "display": "block", "marginBottom": "2px"},
+                ),
+                html.Div(
+                    it.snippet,
+                    style={"fontSize": "0.78rem", "color": "#566D7E",
+                           "lineHeight": "1.35"},
+                ) if it.snippet else html.Div(),
+            ],
+            style={"padding": "8px 0", "borderBottom": "1px solid #ECF0F1"},
+        ))
+    rows[-1].style["borderBottom"] = "none"
+    return html.Div(rows)
+
+
+def _validate_measurement(well_id, date_str, static_m, dynamic_m,
+                          flow_lpm, notes) -> dict:
+    if not well_id:
+        raise ValueError("Seleccione un pozo.")
+    if not date_str:
+        raise ValueError("Seleccione la fecha de la medición.")
+    if static_m is None or dynamic_m is None:
+        raise ValueError("Ingrese ambos niveles (estático y dinámico).")
+    static_m = float(static_m)
+    dynamic_m = float(dynamic_m)
+    if not (0 <= static_m <= 20):
+        raise ValueError("Nivel estático fuera de rango razonable (0-20 m).")
+    if not (0 <= dynamic_m <= 20):
+        raise ValueError("Nivel dinámico fuera de rango razonable (0-20 m).")
+    if dynamic_m > static_m:
+        raise ValueError("El nivel dinámico no puede superar al estático.")
+    return {
+        "date": pd.to_datetime(date_str).date(),
+        "well_id": well_id,
+        "nivel_estatico_m": static_m,
+        "nivel_dinamico_m": dynamic_m,
+        "caudal_lpm": float(flow_lpm) if flow_lpm is not None else None,
+        "notes": (notes or "").strip(),
+    }
+
+
+def _append_measurement(row: dict) -> None:
+    """Append a manual measurement to wells_history.parquet.
+    Persistence is local-only — on Render the container disk is ephemeral, so
+    the row survives until the next deploy. NGO acknowledged this is fine for
+    the demo; production would push to a managed store.
+    """
+    cols_full = [
+        "date", "well_id",
+        "nivel_estatico_m", "nivel_dinamico_m",
+        "nivel_predicho_m", "nivel_predicho_low_m", "nivel_predicho_high_m",
+        "is_forecast", "is_post_maintenance",
+        "extraction_l_per_day", "crop_demand_l_per_day",
+        "recharge_proxy_mm", "local_rainfall_mm", "et0_mm",
+        "oni_anom", "enso_state",
+        "model_version", "source", "notes",
+    ]
+    new_row = {c: pd.NA for c in cols_full}
+    new_row.update({
+        "date": row["date"],
+        "well_id": row["well_id"],
+        "nivel_estatico_m": row["nivel_estatico_m"],
+        "nivel_dinamico_m": row["nivel_dinamico_m"],
+        "is_forecast": False,
+        "is_post_maintenance": False,
+        "source": "dashboard_manual_entry",
+        "notes": row["notes"] or None,
+    })
+    new_df = pd.DataFrame([new_row])[cols_full]
+    if WELLS_HISTORY.exists():
+        existing = pd.read_parquet(WELLS_HISTORY)
+        out = pd.concat([existing, new_df], ignore_index=True)
+    else:
+        out = new_df
+    out = out.sort_values(["well_id", "date"]).reset_index(drop=True)
+    WELLS_HISTORY.parent.mkdir(parents=True, exist_ok=True)
+    out.to_parquet(WELLS_HISTORY, index=False)
+
+
+def _feedback(msg: str, ok: bool) -> html.Span:
+    color = "#27AE60" if ok else "#E74C3C"
+    icon = "✅" if ok else "⚠️"
+    return html.Span(f"{icon} {msg}", style={"color": color, "fontWeight": "600"})
+
+
+def _trigger_recalibration() -> bool:
+    """Fire-and-forget recalibration in a background subprocess.
+
+    Uses --no-fetch so it runs against the cached drivers parquet (no CDSE/
+    Open-Meteo network calls). Typical runtime ~30s. Output goes to a log
+    file so we can debug post-hoc without blocking the dashboard.
+    Returns True if the subprocess was spawned successfully.
+    """
+    import subprocess
+    log_path = ROOT / "data" / "processed" / ".last_recalibration.log"
+    lock_path = ROOT / "data" / "processed" / ".recalibration.lock"
+    if lock_path.exists():
+        # Don't pile up concurrent runs. Stale lock is auto-cleared after 5 min.
+        age = pd.Timestamp.now().timestamp() - lock_path.stat().st_mtime
+        if age < 300:
+            return False
+    try:
+        lock_path.touch()
+        log_f = open(log_path, "w")
+        proc = subprocess.Popen(
+            [sys.executable, str(ROOT / "scripts" / "calibrate_water_balance.py"),
+             "--no-fetch"],
+            stdout=log_f, stderr=subprocess.STDOUT,
+            cwd=str(ROOT),
+            start_new_session=True,
+        )
+        # Schedule lock cleanup. Daemon thread so it doesn't block shutdown.
+        import threading
+
+        def _cleanup():
+            proc.wait()
+            try:
+                lock_path.unlink(missing_ok=True)
+            except Exception:
+                pass
+
+        threading.Thread(target=_cleanup, daemon=True).start()
+        return True
+    except Exception:
+        try:
+            lock_path.unlink(missing_ok=True)
+        except Exception:
+            pass
+        return False
 
 
 def register_pozos_callbacks(app):
@@ -533,6 +985,16 @@ def register_pozos_callbacks(app):
         Output("pozos-forecast-chart", "figure"),
         Output("pozos-enso", "children"),
         Output("pozos-enso-subtitle", "children"),
+        Output("pozos-well-level", "children"),
+        Output("pozos-well-level-subtitle", "children"),
+        Output("pozos-well-level", "style"),
+        Output("heat-card-body", "children"),
+        Output("heat-badge", "children"),
+        Output("heat-badge", "color"),
+        Output("news-card-body", "children"),
+        Output("crop-stress-card-body", "children"),
+        Output("crop-stress-badge", "children"),
+        Output("crop-stress-badge", "color"),
         Output("pozos-distribution-info", "children"),
         Output("pozos-ai-summary", "children"),
         Input("auto-refresh", "n_intervals"),
@@ -557,7 +1019,7 @@ def register_pozos_callbacks(app):
 
         # Map + forecast
         map_fig = _build_well_map(wells)
-        forecast_fig, days_to_critical = _build_forecast_chart(
+        forecast_fig, days_to_critical, crossing_probs = _build_forecast_chart(
             history,
             oni_anom=anom,
             params=params,
@@ -575,12 +1037,72 @@ def register_pozos_callbacks(app):
         last_static = float(last_row["nivel_estatico_m"]) if last_row is not None else 0.0
         last_date = last_row["date"] if last_row is not None else pd.Timestamp.now()
 
+        # Well level as % capacity (NGO ask, 2026-05-05)
+        pct = _pct_capacity(last_static)
+        level_color = _level_card_color(pct)
+        level_value = f"{pct:.0f}%"
+        level_subtitle = f"{last_static:.1f} m de {POZO1_FULL_M:.1f} m"
+        level_style = {"color": level_color, "margin": "0",
+                       "fontWeight": "700", "fontSize": "1.6rem"}
+
         drought = _compute_drought_state()
+        freshness_label, freshness_color = pipeline_freshness()
         ai_summary = _build_ai_summary(
             anom, state, last_static, last_date, days_to_critical, cal_meta,
-            drought=drought,
+            pct=pct, drought=drought,
+            freshness_label=freshness_label, freshness_color=freshness_color,
+            crossing_probs=crossing_probs,
         )
+
+        heat_body, heat_badge, heat_color = _build_heat_card()
+        news_body = _build_news_card()
+        crop_body, crop_badge, crop_color = _build_crop_stress_card()
 
         return (map_fig, forecast_fig,
                 state_label, f"ONI {anom:+.2f}",
+                level_value, level_subtitle, level_style,
+                heat_body, heat_badge, heat_color,
+                news_body,
+                crop_body, crop_badge, crop_color,
                 distribution_panel, ai_summary)
+
+    @app.callback(
+        Output("measurement-feedback", "children"),
+        Output("measurement-static-m", "value"),
+        Output("measurement-dynamic-m", "value"),
+        Output("measurement-flow-lpm", "value"),
+        Output("measurement-notes", "value"),
+        Input("measurement-submit", "n_clicks"),
+        State("measurement-well", "value"),
+        State("measurement-date", "date"),
+        State("measurement-static-m", "value"),
+        State("measurement-dynamic-m", "value"),
+        State("measurement-flow-lpm", "value"),
+        State("measurement-notes", "value"),
+        prevent_initial_call=True,
+    )
+    def submit_measurement(n_clicks, well_id, date_str, static_m, dynamic_m,
+                           flow_lpm, notes):
+        if not n_clicks:
+            return no_update, no_update, no_update, no_update, no_update
+        try:
+            row = _validate_measurement(well_id, date_str, static_m, dynamic_m,
+                                        flow_lpm, notes)
+        except ValueError as e:
+            return _feedback(str(e), ok=False), no_update, no_update, no_update, no_update
+        try:
+            _append_measurement(row)
+        except Exception as e:  # noqa: BLE001
+            return _feedback(f"Error al guardar: {e}", ok=False), no_update, no_update, no_update, no_update
+        recal_ok = _trigger_recalibration()
+        recal_note = (
+            "Recalibración del modelo en segundo plano (~30 s — recargue para ver los nuevos parámetros)."
+            if recal_ok else
+            "Recalibración omitida (otra ya en curso). Reintente en 1 minuto si necesita actualizar el modelo."
+        )
+        msg = (
+            f"Guardado · {row['well_id']} · {row['date']}: "
+            f"estático {row['nivel_estatico_m']:.2f} m, "
+            f"dinámico {row['nivel_dinamico_m']:.2f} m. {recal_note}"
+        )
+        return _feedback(msg, ok=True), None, None, None, None

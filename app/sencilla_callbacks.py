@@ -20,6 +20,7 @@ import dash_bootstrap_components as dbc
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import datetime as dt
 
+import config
 from src.data_sources import open_meteo, noaa_oni, andes_rainfall
 from src.water_balance import (
     WaterBalanceParams,
@@ -382,7 +383,7 @@ def register_sencilla_callbacks(app):
         rain_next_7d_mm = 0.0
         weather_df = pd.DataFrame()
         try:
-            weather_df = open_meteo.fetch_forecast(-6.91, -79.51, days=7)
+            weather_df = open_meteo.fetch_forecast(config.SAYARIY_LAT, config.SAYARIY_LON, days=7)
             rain_next_3d_mm = float(weather_df.head(3)["precip_mm"].sum())
             rain_next_7d_mm = float(weather_df["precip_mm"].sum())
         except Exception:
@@ -391,7 +392,7 @@ def register_sencilla_callbacks(app):
         # Days until critical (from technical forecast)
         days_to_critical: int | None = None
         try:
-            local = open_meteo.fetch_forecast(-6.91, -79.51, days=14)
+            local = open_meteo.fetch_forecast(config.SAYARIY_LAT, config.SAYARIY_LON, days=14)
             up = andes_rainfall.fetch_upper_basin_forecast(days=14)
             up["recharge_proxy_mm"] = andes_rainfall.recharge_proxy(up["andes_precip_mm"])
             try:
@@ -401,7 +402,7 @@ def register_sencilla_callbacks(app):
             df = local.merge(up[["date", "recharge_proxy_mm"]], on="date", how="left")
             df["recharge_proxy_mm"] = df["recharge_proxy_mm"].fillna(0)
             df["local_rainfall_mm"] = df["precip_mm"]
-            df["extraction_l"] = 45000
+            df["extraction_l"] = 50000
             df["oni_anom"] = anom
             df = df[["date", "recharge_proxy_mm", "local_rainfall_mm",
                      "extraction_l", "oni_anom", "et0_mm"]]
@@ -436,7 +437,7 @@ def register_sencilla_callbacks(app):
         try:
             end = dt.date.today() - dt.timedelta(days=2)
             df_arch_local = open_meteo.fetch_historical(
-                -6.91, -79.51, dt.date(2000, 1, 1), end
+                config.SAYARIY_LAT, config.SAYARIY_LON, dt.date(2000, 1, 1), end
             )
             try:
                 _, anom, _ = noaa_oni.latest_state()
