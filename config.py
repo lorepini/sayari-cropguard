@@ -68,6 +68,13 @@ COMMUNITY_CENTERS = {
     "Monsefú":        (-79.887, -6.889),
 }
 
+# ── Sayariy parcel anchor (Pozo 1) ─────────────────────────────────────────────
+# Derived from Alarcón 2021 schematic UTM 663913E, 9235271N (zone 17S) →
+# WGS84. This is THE coord used by every Open-Meteo / archive call so the
+# weather grid samples the actual parcel, not a 1-km-NE placeholder.
+SAYARIY_LAT = -6.9161
+SAYARIY_LON = -79.5164
+
 # ── Dashboard ─────────────────────────────────────────────────────────────────
 MAP_CENTER = {"lat": -6.88, "lon": -79.57}
 MAP_ZOOM   = 10

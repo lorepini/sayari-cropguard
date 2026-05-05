@@ -17,7 +17,7 @@
       "type": "Feature",
       "geometry": {
         "type": "Point",
-        "coordinates": [-79.51, -6.91]
+        "coordinates": [-79.516392, -6.916094]
       },
       "properties": {
         "well_id": "pozo1_asr",
@@ -27,6 +27,7 @@
         "utm_north": 9235271,
         "utm_zone": "17S",
         "utm_source": "Alarcón 2021 SEV-02",
+        "coordinates_source": "WGS84 derived from Alarcón 2021 UTM (EPSG:32717→4326). Previously placeholder (-79.51, -6.91) — corrected 2026-05-05.",
         "drilled_depth_m": 20.20,
         "recommended_depth_m": 48.0,
         "casing": "PVC 20 m x 6\" ID, Class PN10",
@@ -58,14 +59,14 @@
       "type": "Feature",
       "geometry": {
         "type": "Point",
-        "coordinates": [-79.51, -6.91]
+        "coordinates": [-79.516274, -6.915342]
       },
       "properties": {
         "well_id": "pozo2_asr",
         "name": "Pozo 2 ASR",
-        "status": "out_of_service",
-        "status_note": "Reportado fuera de servicio en reunión NGO 2026-04-30",
-        "coordinates_status": "TBD_pending_ngo_confirmation",
+        "status": "respaldo",
+        "status_note": "Backup-only — NGO meeting 2026-05-05 confirmed Pozo 2 operates only as respaldo for Pozo 1, not continuously",
+        "coordinates_source": "https://maps.app.goo.gl/ic85WbnkSqbsXsaN6 (NGO 2026-05-05); Google place ASR — verify with NGO that pin marks the well, not the association office",
         "drilled_depth_m": 19.20,
         "casing": "PVC 20 m x 160mm OD, Class PN10",
         "bore_diameter_in": 9.25,
@@ -77,17 +78,19 @@
         "static_column_baseline_2021_m": 5.48,
         "dynamic_column_baseline_2021_m": 4.25,
         "test_pump_flow_m3_per_hr": 5.4,
-        "operational_pump_model": "Pedrollo 4SR45Gm/20",
+        "operational_pump_model": "Pedrollo 4SR45Gm/20 (spec)",
         "operational_pump_power_kw": 1.5,
         "operational_pump_power_hp": 2.0,
         "operational_pump_stages": 6,
         "operational_pump_max_head_m": 55,
         "sustainable_yield_l_per_day": 43000,
-        "current_extraction_l_per_day": null,
+        "current_extraction_l_per_day": 0,
         "primary_recharge": "rio_zana_lateral_seepage",
         "aquifer_type": "free_unconfined",
         "history_tracked_in_chequeo_xlsx": false,
-        "note": "Higher static column than Pozo 1 (5.48 vs 3.5 m) and shallower water table — appears to sit over a more productive aquifer pocket"
+        "measurements_count": 1,
+        "measurements_note": "Static/dynamic measured once during Nov 2021 initial test — NGO 2026-05-05 will email follow-up Excel",
+        "note": "Higher static column than Pozo 1 (5.48 vs 3.5 m) and shallower water table — appears to sit over a more productive aquifer pocket. Activated by NGO when Pozo 1 is unavailable."
       }
     }
   ]

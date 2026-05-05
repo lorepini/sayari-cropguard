@@ -2,8 +2,9 @@
   "source": "NGO Provided Info/Agua.docx",
   "wells": ["pozo1_asr", "pozo2_asr"],
   "operational_wells": ["pozo1_asr"],
-  "out_of_service": ["pozo2_asr"],
-  "operational_status_updated": "2026-04-30",
+  "backup_wells": ["pozo2_asr"],
+  "operational_status_updated": "2026-05-05",
+  "operational_status_note": "Pozo 2 reclassified from out_of_service to backup (respaldo) per NGO meeting 2026-05-05 — has GPS coords and one initial Nov 2021 measurement, NGO will provide further data",
   "pumping": {
     "type": "solar",
     "lift_to_storage_m": 4,
@@ -37,9 +38,14 @@
       "vivienda": true
     }
   },
-  "current_total_extraction_l_per_day": 45000,
-  "operational_sustainable_yield_l_per_day": 52500,
-  "operational_headroom_pct": 14,
-  "combined_sustainable_yield_l_per_day_if_pozo2_repaired": 95500,
-  "headroom_pct_if_pozo2_repaired": 53
+  "current_total_extraction_l_per_day": 50000,
+  "current_household_l_per_day": 20000,
+  "current_crop_l_per_day_normal_season": 30000,
+  "current_crop_l_per_day_high_season": 43000,
+  "current_extraction_note": "NGO 2026-05-05: 50k L/day pumped (~4 h/day on solar). Houses ~20k year-round; crops swing 30k (May-Sep) → 40-45k (Oct-Apr).",
+  "operational_pump_note": "Currently a 2-inch solar pump (less powerful than the spec'd Pedrollo 4SR45Gm/30) — fills 50k L in 4 h on a 28-30°C day.",
+  "operational_sustainable_yield_l_per_day": 50000,
+  "operational_headroom_pct": 0,
+  "combined_sustainable_yield_l_per_day_if_pozo2_active": 93000,
+  "headroom_pct_if_pozo2_active": 46
 }

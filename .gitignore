@@ -30,6 +30,9 @@ data/processed/*
 !data/processed/wells_history.parquet
 !data/processed/water_balance_params.json
 !data/processed/water_balance_drivers.parquet
+# Marker written by the GitHub Action on each scheduled pipeline run; the
+# dashboard freshness card reads it. Allow it to be committed by the bot.
+!data/processed/.last_pipeline_run.txt
 
 # Notebooks checkpoints
 .ipynb_checkpoints/

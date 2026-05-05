@@ -1,6 +1,37 @@
 {
   "type": "FeatureCollection",
+  "metadata": {
+    "primary_aoi": "sayariy_parcela",
+    "primary_aoi_note": "The Sayariy NGO parcel is the operational AOI — that's where the wells and the maracuyá/huertos are. The 5 community polygons below are coarse 2.78x2.78 km bounding boxes for regional context, not parcel-level precision. Replace with NGO-provided chacra polygons when available.",
+    "wells_in_primary_aoi": ["pozo1_asr", "pozo2_asr"]
+  },
   "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "id": "sayariy_parcela",
+        "name": "Sayariy (parcela)",
+        "district": "Cayaltí",
+        "province": "Chiclayo",
+        "region": "Lambayeque",
+        "population_approx": 100,
+        "main_crops": ["maracuya", "huertos_mixed", "naranja", "mango", "palta", "papaya"],
+        "water_source": "well",
+        "area_ha": 13,
+        "is_primary_aoi": true,
+        "geometry_source": "Approximate 360x360m square centered on Pozo 1 (Alarcón 2021 UTM). Replace with NGO-provided per-chacra polygons when available."
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [[
+          [-79.5180, -6.9145],
+          [-79.5148, -6.9145],
+          [-79.5148, -6.9177],
+          [-79.5180, -6.9177],
+          [-79.5180, -6.9145]
+        ]]
+      }
+    },
     {
       "type": "Feature",
       "properties": {

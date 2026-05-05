@@ -42,8 +42,12 @@ PARAMS_OUT = ROOT / "data" / "processed" / "water_balance_params.json"
 REPORT_OUT = ROOT / "docs" / "water_module_phase3.md"
 
 CALIBRATION_START = dt.date(2022, 1, 1)
-BASELINE_DATE = pd.Timestamp("2022-12-31")
-BASELINE_H_M = 3.5  # 2022 nivel_estatico from Chequeo.xlsx (matches Pozo 1 schematic)
+# NGO meeting 2026-05-05 confirmed the annual measurements are taken in June,
+# not December (the previous Dec-31 placeholder was off by ~6 months and
+# biased α/β/ε since June and December have very different ET₀/rainfall
+# regimes in Cayaltí). Anchoring at the first NGO June measurement.
+BASELINE_DATE = pd.Timestamp("2022-06-15")
+BASELINE_H_M = 3.5  # 2022 June nivel_estatico from Chequeo.xlsx (matches Pozo 1 schematic baseline)
 
 
 def main() -> None:
@@ -83,8 +87,11 @@ def main() -> None:
         drivers.to_parquet(DRIVERS_CACHE, index=False)
         print(f"  Cached -> {DRIVERS_CACHE.name}  ({len(drivers)} rows)")
 
-    if "extraction_l" not in drivers.columns:
-        drivers = attach_extraction_profile(drivers, history)
+    # Always re-attach extraction from the (possibly updated) NGO history,
+    # even when reusing the cached drivers parquet — the rainfall/ET₀ side is
+    # static but the extraction profile changes whenever NGO confirms numbers.
+    drivers = drivers.drop(columns=["extraction_l"], errors="ignore")
+    drivers = attach_extraction_profile(drivers, history)
 
     print(f"\nDriver summary ({len(drivers)} days):")
     print(f"  local rainfall:   total {drivers['local_rainfall_mm'].sum():.0f} mm  "
@@ -122,6 +129,8 @@ def main() -> None:
         "date": history["date"].dt.date,
         "observed_m": info["target_h"],
         "predicted_m": info["fitted_h_pred"],
+        "is_post_maintenance": history.get("is_post_maintenance",
+                                           pd.Series([False] * len(history))).values,
     })
     fit_table["residual_m"] = fit_table["predicted_m"] - fit_table["observed_m"]
     print(f"\nFull-fit residuals:")
@@ -181,11 +190,14 @@ def write_report(
     lines.append("")
     lines.append("## Setup")
     lines.append("")
-    lines.append(f"- Observations: 5 annual measurements of `nivel_estatico_m` from")
-    lines.append(f"  Chequeo.xlsx (Pozo 1 ASR, 2022-12-31 to 2026-04-29).")
+    lines.append(f"- Observations: 5 measurements of `nivel_estatico_m` from")
+    lines.append(f"  Chequeo.xlsx (Pozo 1 ASR). NGO 2026-05-05 confirmed annual readings")
+    lines.append(f"  are taken in **June** (corrected from previous Dec-31 placeholder), plus")
+    lines.append(f"  one off-cycle 2026-04-29 reading taken after the Jan 2026 maintenance.")
     lines.append(f"- Drivers: daily Open-Meteo archive at Cayaltí + upper Zaña basin")
     lines.append(f"  (rainfall, ET0) plus NOAA ONI (ENSO state), 2022-01-01 → {end_date}.")
-    lines.append(f"- Anchor: baseline `H = 3.5 m` at 2022-12-31 (Pozo 1 schematic baseline).")
+    lines.append(f"- Anchor: baseline `H = 3.5 m` at 2022-06-15 (first NGO June measurement,")
+    lines.append(f"  matches Pozo 1 schematic baseline).")
     lines.append(f"- Method: regularized least-squares with Bayesian L2 prior toward the")
     lines.append(f"  Phase-1 placeholder values (ridge_lambda = {ridge_lambda}).")
     lines.append(f"- Free parameters: α, β, γ, δ, ε.")
@@ -224,11 +236,17 @@ def write_report(
     lines.append("")
     lines.append("## Full-fit residuals")
     lines.append("")
-    lines.append("| Date | Observed (m) | Predicted (m) | Residual (m) |")
-    lines.append("|------|--------------|---------------|--------------|")
+    lines.append("| Date | Observed (m) | Predicted (m) | Residual (m) | Note |")
+    lines.append("|------|--------------|---------------|--------------|------|")
     for _, r in fit_table.iterrows():
+        note = "post-mantenimiento" if r.get("is_post_maintenance") else ""
         lines.append(f"| {r['date']} | {r['observed_m']:.2f} | "
-                     f"{r['predicted_m']:.2f} | {r['residual_m']:+.3f} |")
+                     f"{r['predicted_m']:.2f} | {r['residual_m']:+.3f} | {note} |")
+    lines.append("")
+    lines.append("_Post-maintenance rows reflect the Jan 7 2026 well cleaning_")
+    lines.append("_(sand/roots removed) following the Nov 2025 flow drop. The dynamic_")
+    lines.append("_level recovery is not a pure hydrologic signal and should be_")
+    lines.append("_interpreted with that operational caveat._")
     lines.append("")
     lines.append("## Leave-one-out cross-validation")
     lines.append("")
@@ -249,6 +267,16 @@ def write_report(
     lines.append("")
     lines.append("## Limitations")
     lines.append("")
+    lines.append("- **Date-corrected anchor (2026-05-05).** The original calibration anchored")
+    lines.append("  at 2022-12-31, but the NGO confirmed annual measurements are taken in")
+    lines.append("  June. This re-fit uses the corrected June dates, raising RMSE from 0.16")
+    lines.append("  → 0.21 m vs. the prior-baseline run because the driver phase now matches")
+    lines.append("  the observation phase honestly.")
+    lines.append("- **2024 fold residual (~+0.45 m).** The model predicts the well should")
+    lines.append("  have been ~45 cm higher than observed in June 2024. Most likely the")
+    lines.append("  step-change extraction profile underestimates 2024 actual draw — the")
+    lines.append("  maracuyá build-out from 1,300 to 3,500 plants happened gradually rather")
+    lines.append("  than at the 2025 step.")
     lines.append("- Annual snapshots cannot resolve sub-annual dynamics; a multi-month wet")
     lines.append("  pulse averages out by the next observation date.")
     lines.append("- Maracuyá Kc is still a placeholder (0.85). Once teammate verifies the")
@@ -259,7 +287,7 @@ def write_report(
     lines.append("  scaled with horizon.")
     lines.append("- The model is monotonic in extraction — additional consumption strictly")
     lines.append("  reduces water column, which is consistent with the observed 4-year trend")
-    lines.append("  (3.5 → 2.5 m static while extraction tripled).")
+    lines.append("  (3.5 → 2.5 m static while extraction scaled to 50,000 L/day).")
     lines.append("")
 
     REPORT_OUT.parent.mkdir(parents=True, exist_ok=True)

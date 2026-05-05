@@ -68,48 +68,87 @@ class WaterBalanceParams:
 # 17, before being cited in any deliverable. Course rule: every academic
 # citation must be manually verified or it counts as fraud.
 #
-# Approximate canopy footprint (m^2 per plant or per huerto) is used to convert
-# Kc * ET0 (mm = L/m²) into a daily water demand in litres.
+# `canopy_m2` represents the *wetted area* per unit under drip irrigation
+# (NGO confirmed 2026-05-05: all crops drip-irrigated), not full planted area.
+# This is why Kc * ET0 * canopy * count yields demand close to the NGO-reported
+# 30,000 L/day for crops, despite 13 ha of total planted area.
 CROP_KC_DEFAULT: dict[str, float] = {
     "maracuya": 0.85,        # passion fruit, mid-season — verify
     "maiz": 1.20,            # corn, mid-season — verify
-    "cebolla": 1.05,         # onion, mid-season — verify
-    "cilantro": 1.00,        # cilantro/coriander, mid-season — verify
-    "naranja": 0.70,         # orange (mature, no ground cover) — verify
+    "frijol": 1.15,          # bean, mid-season — verify (rotates with maíz Q3)
     "huertos_mixed": 0.85,   # rough mixed-vegetable average — verify
-    "rice": 1.20,            # FAO-56 mid-season — verify
-    "sugarcane": 1.25,       # FAO-56 mid-season — verify
+    "naranja": 0.70,         # orange (mature, no ground cover) — verify
+    "mandarina": 0.70,       # mandarin — verify
+    "limon": 0.70,           # lime/lemon — verify
+    "mango": 0.85,           # mango (mature) — verify
+    "palta": 0.85,           # avocado (mature) — verify
+    "papaya": 1.05,          # papaya (mid-season) — verify
+    "coco": 0.95,            # coconut palm — verify
+    "tuna": 0.50,            # prickly pear / cactus — verify
+    "algodon": 1.15,         # cotton, mid-season — verify
+    "rice": 1.20,            # FAO-56 mid-season — verify (not currently planted)
+    "sugarcane": 1.25,       # FAO-56 mid-season — verify (not currently planted)
 }
 
-# Approximate canopy footprint per unit. Educated estimates — refine when NGO
-# confirms actual planting density per chacra.
+# Wetted-area per unit under drip. The huertos figure is calibrated so that
+# DEFAULT_CROP_MIX yields ~30k L/day at typical ET0=4.5 mm/day, matching the
+# NGO's reported normal-season crop draw of 30,000 L/day.
 CROP_CANOPY_M2: dict[str, float] = {
-    "maracuya": 2.0,         # per plant (trellised)
+    "maracuya": 2.0,         # per plant (trellised, 3 ha / 3,500 plants ≈ 8.6 m² planted, ~2 m² wetted)
     "maiz": 0.5,             # per plant
-    "cebolla": 0.05,         # per plant (very small footprint)
-    "cilantro": 0.04,        # per plant
-    "naranja": 12.0,         # per mature tree
-    "huertos_mixed": 30.0,   # per huerto (kitchen garden)
+    "frijol": 0.3,           # per plant
+    "huertos_mixed": 40.0,   # per huerto wetted; the 10 ha / 20 huertos hold the
+                             # orchard species below — calibrated to NGO 30k/day baseline.
+    "naranja": 12.0,         # per mature tree (reference; usually counted in huertos_mixed)
+    "mandarina": 10.0,       # per mature tree
+    "limon": 8.0,            # per mature tree
+    "mango": 25.0,           # per mature tree
+    "palta": 20.0,           # per mature tree
+    "papaya": 4.0,           # per plant
+    "coco": 15.0,            # per palm
+    "tuna": 1.0,             # per plant (cactus, low wetted)
+    "algodon": 0.5,          # per plant
 }
 
-# Default hypothetical crop mix — pending NGO confirmation of the actual mix.
-# 3,500 maracuyá is the only hard number from the meeting. The 20 huertos are
-# split with the smaller ones holding orange trees (per NGO Apr 30 note).
+# NGO-confirmed crop inventory (meeting 2026-05-05):
+# - Maracuyá: 3 ha, 3,500 plants
+# - 20 huertos = 10 ha total, holding the orchard mix listed in CROP_KC_DEFAULT
+#   (mango, palta, naranja, mandarina, limón, papaya, coco, tuna, algodón —
+#   planted Jan 2023, still in production). Counted as `huertos_mixed` to avoid
+#   double-counting until NGO confirms per-chacra species/plant counts.
+# - Frijol/maíz rotated every 3 months for soil nutrition — only one in ground
+#   at a time. Conservative default uses maíz (higher Kc).
 DEFAULT_CROP_MIX: dict[str, int] = {
     "maracuya": 3500,
-    "naranja": 5,    # the smaller chacras
-    "maiz": 6,
-    "cebolla": 5,
-    "cilantro": 4,
+    "huertos_mixed": 20,
+    "maiz": 100,
 }
 
 
-# Pump capacity ceiling — Pozo 1 only, since Pozo 2 was reported out of service
-# in the NGO meeting on 2026-04-30. 52,500 L/day = Pedrollo 4SR45Gm/30 at 8 h/day
-# sustainable yield (from 2021 schematic test data). Crop demand cannot exceed
-# this because the pump physically cannot deliver more in a day.
-# Restore to 95,500 L/day (combined Pozo 1 + Pozo 2) once Pozo 2 returns to service.
-PUMP_CAPACITY_L_PER_DAY = 52500
+# Pump capacity ceiling — Pozo 1 only. NGO confirmed 2026-05-05 that the
+# operational pump is currently a 2-inch solar pump (less powerful than the
+# Pedrollo 4SR45Gm/30 spec'd in the schematic) and fills 50,000 L in 4 hours
+# on a 28-30 °C day. Pozo 2 is backup-only and contributes 0 by default.
+# The schematic's 52,500 L/day Pedrollo sustainable yield remains in
+# wells.geojson for reference if/when the Pedrollo is re-activated.
+PUMP_CAPACITY_L_PER_DAY = 50_000
+
+# Household demand on the same system (NGO confirmed 2026-05-05): the houses
+# connected to the storage tank consume ~20,000 L/day year-round. This is added
+# on top of crop_demand_l_per_day to get total well extraction.
+HOUSEHOLD_DEMAND_L_PER_DAY = 20_000
+
+# Seasonal crop-demand multiplier. NGO confirmed 2026-05-05:
+# - Oct-Apr (hot, days >30 °C): 40-45k L/day for crops
+# - May-Sep (cooler): ~30k L/day for crops
+# Apply to crop_demand_l_per_day() output before summing with household demand.
+HIGH_DEMAND_MONTHS = {1, 2, 3, 4, 10, 11, 12}
+HIGH_DEMAND_MULTIPLIER = 1.45  # 30k -> 43.5k matches NGO's 40-45k range
+
+
+def seasonal_demand_multiplier(month: int) -> float:
+    """Return the NGO-confirmed seasonal multiplier for a given month (1-12)."""
+    return HIGH_DEMAND_MULTIPLIER if month in HIGH_DEMAND_MONTHS else 1.0
 
 
 def crop_demand_l_per_day(
@@ -152,6 +191,31 @@ def crop_demand_l_per_day(
         raw_demand += kc * et0_mm_per_day * canopy * count
 
     return min(raw_demand, pump_capacity_l_per_day)
+
+
+def total_extraction_l_per_day(
+    et0_mm_per_day: float,
+    month: int,
+    crop_mix: dict[str, int] | None = None,
+    kc_overrides: dict[str, float] | None = None,
+    canopy_overrides: dict[str, float] | None = None,
+    pump_capacity_l_per_day: float = PUMP_CAPACITY_L_PER_DAY,
+    household_l_per_day: float = HOUSEHOLD_DEMAND_L_PER_DAY,
+) -> float:
+    """Total daily well extraction = seasonal crop demand + household demand,
+    capped at pump capacity. NGO confirmed (2026-05-05) the houses on the
+    system draw a roughly constant 20,000 L/day year-round; crop demand swings
+    by month per `seasonal_demand_multiplier()`.
+    """
+    crops = crop_demand_l_per_day(
+        et0_mm_per_day=et0_mm_per_day,
+        crop_mix=crop_mix,
+        kc_overrides=kc_overrides,
+        canopy_overrides=canopy_overrides,
+        pump_capacity_l_per_day=pump_capacity_l_per_day,
+    )
+    crops *= seasonal_demand_multiplier(month)
+    return min(crops + household_l_per_day, pump_capacity_l_per_day)
 
 
 def step(
@@ -210,7 +274,8 @@ def forecast_ensemble(
     drivers_per_member: list[pd.DataFrame],
     params: WaterBalanceParams = WaterBalanceParams(),
     percentiles: tuple[float, ...] = (10, 50, 90),
-) -> pd.DataFrame:
+    return_matrix: bool = False,
+) -> pd.DataFrame | tuple[pd.DataFrame, pd.DataFrame]:
     """Run the model forward under each ensemble driver trajectory.
 
     drivers_per_member : list of DataFrames, one per ensemble member, each
@@ -237,7 +302,28 @@ def forecast_ensemble(
     out["nivel_mean_m"] = matrix.mean(axis=1).values
     out["nivel_std_m"] = matrix.std(axis=1).values
     out["n_members"] = matrix.shape[1]
-    return out.reset_index(drop=True)
+    out = out.reset_index(drop=True)
+    if return_matrix:
+        return out, matrix
+    return out
+
+
+def cross_probability(
+    ensemble_matrix: pd.DataFrame,
+    threshold_m: float,
+    horizon_days: int,
+) -> float:
+    """Fraction of ensemble members whose trajectory drops below `threshold_m`
+    at any point within the first `horizon_days` of the forecast.
+
+    `ensemble_matrix` is the (date × member) DataFrame returned by
+    `forecast_ensemble(..., return_matrix=True)`.
+    """
+    if ensemble_matrix.empty or horizon_days <= 0:
+        return 0.0
+    sub = ensemble_matrix.iloc[:horizon_days]
+    crossed = (sub < threshold_m).any(axis=0)
+    return float(crossed.mean())
 
 
 def forecast_with_uncertainty(

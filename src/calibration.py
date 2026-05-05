@@ -41,9 +41,11 @@ from src.data_sources import andes_rainfall, noaa_oni, open_meteo
 from src.water_balance import WaterBalanceParams, forecast
 
 
-# Cayalti coordinates (Pozo 1)
-LOCAL_LAT = -6.91
-LOCAL_LON = -79.51
+# Cayaltí coordinates — single source of truth in config.SAYARIY_LAT/LON,
+# derived from Alarcón 2021 UTM (663913E, 9235271N, zone 17S) → WGS84.
+import config as _cfg  # noqa: E402
+LOCAL_LAT = _cfg.SAYARIY_LAT
+LOCAL_LON = _cfg.SAYARIY_LON
 
 # Parameter prior scales: how far the data can move each param before the
 # regularizer pushes back. Set so the placeholder values can move ~1 order
