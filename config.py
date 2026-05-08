@@ -21,6 +21,14 @@ CDSE_USER         = os.getenv("CDSE_USER", "")
 CDSE_PASSWORD     = os.getenv("CDSE_PASSWORD", "")
 MAPBOX_TOKEN      = os.getenv("MAPBOX_TOKEN", "")
 
+# ── Auth (write actions only) ─────────────────────────────────────────────────
+# Shared password for the manual measurement form. If unset, no one can write.
+CROPGUARD_WRITE_PASSWORD = os.getenv("CROPGUARD_WRITE_PASSWORD", "")
+# Signs the Flask session cookie. Set on Render to a stable value so sessions
+# survive restarts. Dev fallback: an ephemeral random key (logs you out on
+# every reboot, which is fine locally).
+CROPGUARD_SECRET_KEY = os.getenv("CROPGUARD_SECRET_KEY", os.urandom(32).hex())
+
 # ── Sentinel-2 search parameters ──────────────────────────────────────────────
 # Bounding box covering all Sayariy communities (lon_min, lat_min, lon_max, lat_max)
 AOI_BBOX = (-79.70, -7.05, -79.35, -6.65)

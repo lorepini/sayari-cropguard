@@ -11,10 +11,12 @@ import dash_bootstrap_components as dbc
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
+import config
 from layout import build_layout
 from callbacks import register_callbacks
 from pozos_callbacks import register_pozos_callbacks
 from sencilla_callbacks import register_sencilla_callbacks
+from src.auth import register_auth_routes
 
 app = dash.Dash(
     __name__,
@@ -25,6 +27,10 @@ app = dash.Dash(
     title="CropGuard | Sayariy-Resurgiendo",
     suppress_callback_exceptions=True,
 )
+
+# Sign Flask session cookies so /login can persist `can_write` per browser.
+app.server.secret_key = config.CROPGUARD_SECRET_KEY
+register_auth_routes(app.server)
 
 app.layout = build_layout()
 register_callbacks(app)
