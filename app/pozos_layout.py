@@ -152,6 +152,21 @@ def build_pozos_layout() -> html.Div:
                 style={"marginBottom": "12px"},
             ),
 
+            # ── CSV download for well history ──────────────────────────────
+            dbc.Row(
+                [
+                    dbc.Col(dbc.Button(
+                        "📥 Exportar historial del pozo (CSV)",
+                        id="pozo-download-btn",
+                        color="outline-primary",
+                        size="sm",
+                    )),
+                    dcc.Download(id="pozo-download"),
+                ],
+                className="g-2",
+                style={"marginBottom": "12px"},
+            ),
+
             # ── Weather + news alerts row ──────────────────────────────────
             dbc.Row(
                 [

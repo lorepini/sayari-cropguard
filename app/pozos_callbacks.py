@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 import pandas as pd
 import plotly.graph_objects as go
-from dash import Input, Output, State, html, no_update
+from dash import Input, Output, State, dcc, html, no_update
 import dash_bootstrap_components as dbc
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -1215,3 +1215,17 @@ def register_pozos_callbacks(app):
             f"dinámico {row['nivel_dinamico_m']:.2f} m. {recal_note}"
         )
         return _feedback(msg, ok=True), None, None, None, None
+
+    @app.callback(
+        Output("pozo-download", "data"),
+        Input("pozo-download-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def download_pozo_history(_n_clicks):
+        df = pd.read_parquet(WELLS_HISTORY)
+        df = df[df["well_id"] == "pozo1_asr"]
+        return dcc.send_data_frame(
+            df.to_csv,
+            filename=f"pozo1_historial_{date.today().strftime('%Y%m%d')}.csv",
+            index=False,
+        )

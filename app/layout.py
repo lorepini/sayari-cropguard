@@ -284,6 +284,15 @@ def _build_crop_content() -> html.Div:
                                                              "color": "#1A2744"}),
                                         ),
                                         dbc.Col(
+                                            dbc.Button(
+                                                "📥 Exportar índices (CSV)",
+                                                id="crop-download-btn",
+                                                color="outline-primary",
+                                                size="sm",
+                                            ),
+                                            width="auto",
+                                        ),
+                                        dbc.Col(
                                             dcc.Dropdown(
                                                 id="community-selector",
                                                 placeholder="Filtrar comunidad...",
@@ -301,11 +310,14 @@ def _build_crop_content() -> html.Div:
                                        "borderBottom": "2px solid #00897B"},
                             ),
                             dbc.CardBody(
-                                dcc.Graph(
-                                    id="timeseries-chart",
-                                    config={"displayModeBar": False},
-                                    style={"height": "38vh"},
-                                ),
+                                [
+                                    dcc.Graph(
+                                        id="timeseries-chart",
+                                        config={"displayModeBar": False},
+                                        style={"height": "38vh"},
+                                    ),
+                                    dcc.Download(id="crop-download"),
+                                ],
                                 style={"padding": "8px"},
                             ),
                         ],
