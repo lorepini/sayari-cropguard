@@ -11,7 +11,7 @@ import numpy as np
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
-from dash import Input, Output, State, callback, html
+from dash import Input, Output, State, callback, dcc, html
 import dash_bootstrap_components as dbc
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -388,6 +388,23 @@ def register_callbacks(app):
         fig.update_traces(line_width=2, marker_size=5)
 
         return fig, title
+
+    @app.callback(
+        Output("crop-download", "data"),
+        Input("crop-download-btn", "n_clicks"),
+        prevent_initial_call=True,
+    )
+    def download_crop_indices(_n_clicks):
+        index_history_path = (
+            Path(__file__).resolve().parent.parent
+            / "data" / "processed" / "index_history.parquet"
+        )
+        df = pd.read_parquet(index_history_path)
+        return dcc.send_data_frame(
+            df.to_csv,
+            filename=f"cultivos_indices_{date.today().strftime('%Y%m%d')}.csv",
+            index=False,
+        )
 
 
 # ── Tiny helper ───────────────────────────────────────────────────────────────
