@@ -18,6 +18,7 @@ import pandas as pd
 import plotly.graph_objects as go
 from dash import Input, Output, State, html, no_update
 import dash_bootstrap_components as dbc
+from flask import session
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 import config
@@ -1194,6 +1195,12 @@ def register_pozos_callbacks(app):
                            flow_lpm, notes):
         if not n_clicks:
             return no_update, no_update, no_update, no_update, no_update
+        if not session.get("can_write"):
+            return (
+                _feedback("Inicie sesión con la contraseña NGO para registrar.",
+                          ok=False),
+                no_update, no_update, no_update, no_update,
+            )
         try:
             row = _validate_measurement(well_id, date_str, static_m, dynamic_m,
                                         flow_lpm, notes)
