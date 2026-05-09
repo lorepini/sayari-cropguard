@@ -148,6 +148,35 @@ def build_sencilla_layout() -> html.Div:
                        "marginBottom": "16px"},
             ),
 
+            # ── Crop recommendations ─────────────────────────────────────────
+            dbc.Card(
+                [
+                    dbc.CardHeader(
+                        html.Span([
+                            "🌿 ¿Qué plantar y qué cuidar ahora?",
+                            *info_tooltip(
+                                "tip-crop-rec",
+                                "Recomendaciones de cultivo",
+                                "Recomendaciones sobre qué plantar, qué evitar y qué proteger según el estado actual del clima costero (ICEN), la humedad del suelo y el nivel del pozo.",
+                                "Basado en: ICEN/ENFEN (índice costero de El Niño), datos de impacto del El Niño 2017 por cultivo (French et al., PLOS ONE 2023), suelos aluviales de Cayaltí-Zaña (INIA/Concytec) y valores Kc verificados FAO-56.",
+                                "IMARPE/ENFEN (ICEN) · Open-Meteo (humedad suelo) · French et al. 2023 · FAO-56.",
+                            ),
+                        ], style={"fontWeight": "700",
+                                  "fontSize": "1.1rem",
+                                  "color": "#1A2744"}),
+                        style={"backgroundColor": "white",
+                               "borderBottom": "3px solid #27AE60"},
+                    ),
+                    dbc.CardBody(
+                        html.Div(id="sencilla-crop-rec"),
+                        style={"padding": "16px"},
+                    ),
+                ],
+                style={"border": "none",
+                       "boxShadow": "0 2px 8px rgba(0,0,0,.08)",
+                       "marginBottom": "16px"},
+            ),
+
             # ── Footer help ─────────────────────────────────────────────────
             html.Div(
                 [

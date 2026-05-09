@@ -21,7 +21,12 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 import datetime as dt
 
 import config
-from src.data_sources import open_meteo, noaa_oni, andes_rainfall
+from src.data_sources import open_meteo, noaa_oni, andes_rainfall, imarpe_icen
+from src.crop_recommendation import (
+    generate_recommendations,
+    severity_color,
+    severity_bg,
+)
 from src.water_balance import (
     WaterBalanceParams,
     days_until_critical,
@@ -359,6 +364,7 @@ def register_sencilla_callbacks(app):
         Output("sencilla-riego-rec", "children"),
         Output("sencilla-weather-strip", "children"),
         Output("sencilla-alerts", "children"),
+        Output("sencilla-crop-rec", "children"),
         Input("auto-refresh", "n_intervals"),
     )
     def refresh_sencilla(_n):
@@ -372,11 +378,15 @@ def register_sencilla_callbacks(app):
         static_m = float(last["nivel_estatico_m"])
         last_date = last["date"]
 
-        # ENSO
+        # ENSO — prefer coastal ICEN for Lambayeque risk assessment
         try:
             _, _, enso_state = noaa_oni.latest_state()
         except Exception:
             enso_state = "neutral"
+        try:
+            _, icen_anom, icen_state = imarpe_icen.latest_icen()
+        except Exception:
+            icen_anom, icen_state = 0.0, "neutral"
 
         # 7-day local forecast
         rain_next_3d_mm = 0.0
@@ -453,6 +463,32 @@ def register_sencilla_callbacks(app):
         except Exception:
             pass
 
+        # Soil moisture (surface layer) for crop recommendations
+        soil_moisture_val: float | None = None
+        try:
+            sm_df = open_meteo.fetch_soil_moisture_forecast(
+                config.SAYARIY_LAT, config.SAYARIY_LON, days=3
+            )
+            if not sm_df.empty:
+                soil_moisture_val = float(sm_df.iloc[0]["soil_moisture_0_1cm_m3m3"])
+        except Exception:
+            pass
+
+        # % capacity: 100% = 3.5 m static (schematic baseline), 0% = 2.0 m critical
+        pct_cap: float | None = None
+        try:
+            pct_cap = max(0.0, min(100.0, (static_m - 2.0) / (3.5 - 2.0) * 100.0))
+        except Exception:
+            pass
+
+        crop_recs = generate_recommendations(
+            icen_state=icen_state,
+            icen_anom=icen_anom,
+            month=dt.date.today().month,
+            soil_moisture_0_1cm=soil_moisture_val,
+            pct_capacity=pct_cap,
+        )
+
         return (
             _build_status_hero(static_m, last_date),
             _build_tank_gauge(static_m),
@@ -460,6 +496,7 @@ def register_sencilla_callbacks(app):
             _build_weather_strip(weather_df),
             _build_alerts(static_m, days_to_critical, rain_next_7d_mm, enso_state,
                           drought=drought, seasonal_outlook=seasonal_outlook),
+            _build_crop_rec_card(crop_recs),
         )
 
 
@@ -472,4 +509,58 @@ def _empty_state():
                    style={"color": "#7F8C8D", "fontSize": "1rem"}),
         ],
     )
-    return msg, msg, msg, msg, msg
+    return msg, msg, msg, msg, msg, msg
+
+
+def _build_crop_rec_card(recs) -> html.Div:
+    """Render the list of CropRecommendation objects as dashboard cards."""
+    from src.crop_recommendation import CropRecommendation
+    if not recs:
+        return html.P("Sin recomendaciones activas.", style={"color": "#7F8C8D"})
+
+    cards = []
+    for rec in recs:
+        border_color = severity_color(rec.severity)
+        bg = severity_bg(rec.severity)
+        cards.append(
+            html.Div(
+                [
+                    html.Div(
+                        rec.title_es,
+                        style={
+                            "fontWeight": "700",
+                            "fontSize": "0.95rem",
+                            "color": border_color,
+                            "marginBottom": "6px",
+                        },
+                    ),
+                    html.P(
+                        rec.body_es,
+                        style={
+                            "fontSize": "0.85rem",
+                            "color": "#2C3E50",
+                            "marginBottom": "6px",
+                            "lineHeight": "1.5",
+                        },
+                    ),
+                    html.Div(
+                        rec.action_es,
+                        style={
+                            "fontSize": "0.82rem",
+                            "color": "#1A2744",
+                            "fontStyle": "italic",
+                            "borderLeft": f"3px solid {border_color}",
+                            "paddingLeft": "8px",
+                        },
+                    ),
+                ],
+                style={
+                    "backgroundColor": bg,
+                    "border": f"1px solid {border_color}",
+                    "borderRadius": "8px",
+                    "padding": "12px 14px",
+                    "marginBottom": "10px",
+                },
+            )
+        )
+    return html.Div(cards)
