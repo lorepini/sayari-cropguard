@@ -84,7 +84,7 @@ def _load_latest_well() -> dict:
     }
 
 
-def _traffic_light(pct_capacity: float, rain_next3d_mm: float, icen_state: str) -> str:
+def _traffic_light(pct_capacity: float, icen_state: str, rain_next3d_mm: float = 0.0) -> str:
     if pct_capacity < 20 or icen_state in ("Fuerte", "Extraordinario"):
         return "rojo"
     if pct_capacity < 50 or rain_next3d_mm > 30:
@@ -394,14 +394,12 @@ def alerts():
 
 @api_bp.route("/status")
 def status():
-    """Overall traffic-light status + key summary for the field-worker hero card."""
+    """Overall traffic-light status — uses only well + ICEN (no weather API needed)."""
     try:
         well = _load_latest_well()
-        df_fc = _get_forecast()
         icen_date, icen_anom, icen_state = _get_icen()
-        rain3d = float(df_fc["precipitation_sum"].iloc[:3].sum()) if df_fc is not None and len(df_fc) >= 3 else 0.0
         pct = well.get("pct_capacity", 50.0) if well.get("available") else 50.0
-        light = _traffic_light(pct, rain3d, icen_state)
+        light = _traffic_light(pct, icen_state)
         texts = {
             "verde": "Todo bien — siga su rutina habitual.",
             "amarillo": "Atención — revise el pozo y el pronóstico esta semana.",
@@ -415,7 +413,7 @@ def status():
                 "icen_label": imarpe_icen.icen_label_es(icen_state),
                 "icen_anom": round(float(icen_anom), 2),
                 "well_pct": pct,
-                "rain_3d_mm": round(rain3d, 1),
+                "rain_3d_mm": 0.0,
                 "updated_at": dt.datetime.utcnow().isoformat() + "Z",
             },
         })
