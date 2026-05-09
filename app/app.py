@@ -8,6 +8,7 @@ from pathlib import Path
 
 import dash
 import dash_bootstrap_components as dbc
+from flask_cors import CORS
 
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
@@ -17,6 +18,7 @@ from callbacks import register_callbacks
 from pozos_callbacks import register_pozos_callbacks
 from sencilla_callbacks import register_sencilla_callbacks
 from src.auth import register_auth_routes
+from api import api_bp
 
 app = dash.Dash(
     __name__,
@@ -31,6 +33,10 @@ app = dash.Dash(
 # Sign Flask session cookies so /login can persist `can_write` per browser.
 app.server.secret_key = config.CROPGUARD_SECRET_KEY
 register_auth_routes(app.server)
+
+# REST API — allow the Lovable React frontend to call us cross-origin
+app.server.register_blueprint(api_bp)
+CORS(app.server, resources={r"/api/*": {"origins": "*"}})
 
 app.layout = build_layout()
 register_callbacks(app)
