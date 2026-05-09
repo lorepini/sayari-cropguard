@@ -1,20 +1,15 @@
-# Pinned 2026-05-06: Render was grabbing pre-release Dash 4 / Plotly 6 with
-# Python 3.14, breaking the dashboard. These versions are tested on Python 3.11.
+# Dashboard runtime dependencies — what Render installs to serve the web app.
+# Pipeline-only deps (rasterio, sentinelsat, pystac-client) are in
+# requirements-pipeline.txt and are NOT needed to run the dashboard.
 
-# Build tools (explicit — needed for rasterio wheel build on Python 3.12+)
-setuptools>=69.0
-
-# Core geospatial
-rasterio==1.3.11
+# Core geospatial (dashboard needs geopandas for community GeoJSON)
 geopandas==1.0.1
 shapely==2.0.6
 numpy==1.26.4
 pandas==2.2.3
 pyproj==3.6.1
 
-# Satellite data access
-sentinelsat==1.2.1
-pystac-client==0.8.5
+# HTTP
 requests==2.32.3
 
 # Machine learning + statistics

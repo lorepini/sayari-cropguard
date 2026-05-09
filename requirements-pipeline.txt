@@ -1,0 +1,13 @@
+# Pipeline-only dependencies (Sentinel-2 download + index computation).
+# Install locally when running pipeline.py:
+#   pip install -r requirements-pipeline.txt
+# NOT installed on Render — the dashboard does not need these.
+
+-r requirements.txt
+
+# Raster processing
+rasterio==1.3.11
+
+# Satellite data access
+sentinelsat==1.2.1
+pystac-client==0.8.5
