@@ -27,7 +27,7 @@ from src.crop_stress import (
     crop_stress_forecast,
     reason_label_es,
 )
-from src.data_sources import open_meteo, noaa_oni, andes_rainfall, news_enso
+from src.data_sources import open_meteo, noaa_oni, andes_rainfall, news_enso, imarpe_icen
 from src.water_balance import (
     PUMP_CAPACITY_L_PER_DAY,
     WaterBalanceParams,
@@ -487,6 +487,8 @@ def _build_ai_summary(
     freshness_label: str | None = None,
     freshness_color: str | None = None,
     crossing_probs: dict[int, float] | None = None,
+    icen_anom: float = 0.0,
+    icen_state: str = "neutral",
 ) -> html.Div:
     state_label = {
         "el_nino": "El Niño activo",
@@ -551,9 +553,10 @@ def _build_ai_summary(
                 html.Strong(risk_text, style={"color": risk_color}),
                 f" Última medición {last_date.strftime('%b %Y')}.",
                 pct_segment,
-                "ENSO en estado ",
-                html.Strong(state_label),
-                f" (ONI {oni_anom:+.2f}). ",
+                "ENSO costero: ",
+                html.Strong(imarpe_icen.icen_label_es(icen_state)),
+                f" (ICEN {icen_anom:+.2f} · ONI global {oni_anom:+.2f}). ",
+                imarpe_icen.icen_risk_es(icen_state) + " ",
                 "Pozo 1 al 100% de capacidad de bombeo (~50.000 L/día); Pozo 2 en respaldo.",
             ]),
             style={"fontSize": "0.85rem", "lineHeight": "1.5",
@@ -1116,16 +1119,17 @@ def register_pozos_callbacks(app):
         params, cal_meta = _load_calibrated_params()
         residual_std_m = float(cal_meta.get("loo_residual_std_m", 0.15))
 
-        # ENSO state
+        # ENSO state — fetch global ONI and Peru coastal ICEN
         try:
             _, anom, state = noaa_oni.latest_state()
         except Exception:
             anom, state = 0.0, "neutral"
-        state_label = {
-            "el_nino": "El Niño",
-            "la_nina": "La Niña",
-            "neutral": "Neutral",
-        }.get(state, "—")
+        try:
+            _, icen_anom, icen_state = imarpe_icen.latest_icen()
+        except Exception:
+            icen_anom, icen_state = 0.0, "neutral"
+        # ICEN card: show coastal label prominently; ONI as reference in subtitle
+        state_label = imarpe_icen.icen_label_es(icen_state)
 
         # Map + forecast
         map_fig = _build_well_map(wells)
@@ -1162,6 +1166,7 @@ def register_pozos_callbacks(app):
             pct=pct, drought=drought,
             freshness_label=freshness_label, freshness_color=freshness_color,
             crossing_probs=crossing_probs,
+            icen_anom=icen_anom, icen_state=icen_state,
         )
 
         heat_body, heat_badge, heat_color = _build_heat_card()
@@ -1169,7 +1174,7 @@ def register_pozos_callbacks(app):
         crop_body, crop_badge, crop_color = _build_crop_stress_card()
 
         return (map_fig, forecast_fig,
-                state_label, f"ONI {anom:+.2f}",
+                state_label, f"ICEN {icen_anom:+.2f} · ONI {anom:+.2f}",
                 level_value, level_subtitle, level_style,
                 heat_body, heat_badge, heat_color,
                 news_body,

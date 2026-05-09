@@ -45,12 +45,12 @@ def build_pozos_layout() -> html.Div:
                         ),
                     ),
                     _stat_card_pozo(
-                        "pozos-enso",          "Estado ENSO",
+                        "pozos-enso",          "Estado ENSO (ICEN · ONI)",
                         "—",   "#566D7E", "Cargando...",
                         tip=(
-                            "Estado del fenómeno El Niño / La Niña medido por el Oceanic Niño Index (ONI). Valores >+0,5 = El Niño, <-0,5 = La Niña, entre = Neutral.",
-                            "ONI = anomalía media de 3 meses de la temperatura superficial del Pacífico ecuatorial (región Niño 3.4). Actualizado mensualmente por NOAA.",
-                            "NOAA Climate Prediction Center: psl.noaa.gov/data/correlation/oni.data",
+                            "Estado del fenómeno El Niño en la costa peruana según el ICEN (Índice Costero El Niño, publicado por ENFEN) y el ONI global de NOAA como referencia. El ICEN es el índice correcto para Lambayeque: en 2017 marcó evento intenso mientras el ONI era neutro.",
+                            "ICEN = anomalía de temperatura en Niño 1+2 (costa peruana, 0-10°S / 80-90°W). Umbral ENFEN: ≥+0,4 °C = El Niño Costero (vs. +0,5 °C del ONI en región Niño 3.4, Pacífico central). Actualizado mensualmente.",
+                            "ENFEN / IMARPE · NOAA CPC sstoi.indices",
                         ),
                     ),
                 ],
