@@ -8,7 +8,9 @@ Base path: /api/v1/
 """
 from __future__ import annotations
 
+import math
 import sys
+import unicodedata
 import datetime as dt
 from pathlib import Path
 
@@ -21,6 +23,20 @@ from src.data_sources import open_meteo, imarpe_icen
 from src.crop_recommendation import generate_recommendations, severity_color
 
 api_bp = Blueprint("api", __name__, url_prefix="/api/v1")
+
+
+def _safe_float(val, default: float = 0.0) -> float:
+    try:
+        v = float(val)
+        return default if (math.isnan(v) or math.isinf(v)) else v
+    except (TypeError, ValueError):
+        return default
+
+
+def _slugify(name: str) -> str:
+    norm = unicodedata.normalize("NFKD", name)
+    ascii_name = norm.encode("ascii", "ignore").decode("ascii")
+    return ascii_name.lower().replace(" ", "-").replace("(", "").replace(")", "")
 
 # ── shared forecast fetch (one call, cached 10 min, shared across all endpoints)
 
@@ -142,14 +158,19 @@ def communities():
         gdf = get_latest_scores()
         features = []
         for _, row in gdf.iterrows():
+            ndvi = _safe_float(row.get("NDVI"), default=float("nan"))
+            if math.isnan(ndvi):
+                continue  # skip communities with no satellite data
+            ndwi = _safe_float(row.get("NDWI"), default=0.0)
+            stress = _safe_float(row.get("stress_prob"), default=0.5)
             features.append({
-                "id": str(row["name"]).lower().replace(" ", "-").replace("é", "e").replace("ú", "u"),
+                "id": _slugify(str(row["name"])),
                 "name": row["name"],
                 "province": row.get("province", "Chiclayo, Lambayeque"),
-                "ndvi": round(float(row.get("NDVI", 0)), 3),
-                "ndwi": round(float(row.get("NDWI", 0)), 3),
-                "evi": round(float(row.get("NDWI", 0) * 0.9 + row.get("NDVI", 0) * 0.1), 3),
-                "stress_probability": round(float(row.get("stress_prob", 0.5)), 3),
+                "ndvi": round(ndvi, 3),
+                "ndwi": round(ndwi, 3),
+                "evi": round(ndwi * 0.9 + ndvi * 0.1, 3),
+                "stress_probability": round(stress, 3),
                 "status": row.get("status", "no_data"),
             })
         if not features:
